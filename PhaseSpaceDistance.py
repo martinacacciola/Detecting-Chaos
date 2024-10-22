@@ -73,7 +73,23 @@ plt.xlabel(r'$\Delta^2$')
 plt.ylabel('Frequency')
 plt.xlim(0,100)
 plt.grid(True)
-plt.savefig('./figures/delta_histogram.png')
+plt.savefig('./figures/delta_histogram.png') # Not sure this plot is meaningful
+
+# Compute and sort in ascending order
+log_delta = np.sort(np.log10(delta_per_step))
+# Compute the CDF: cumulative probability for each value
+cdf = np.arange(1, len(log_delta) + 1) / len(log_delta)
+
+plt.figure(figsize=(10, 6))
+plt.plot(log_delta, cdf, color='g', alpha=0.7, label=r"CDF of $\log_{10}(\Delta^2)$")
+plt.xlabel(r'$\log_{10}(\Delta^2)$')
+plt.ylabel(r'$f_{CDF}$')
+plt.title('Cumulative Distribution Function of Amplification Factor')
+plt.grid(True)
+plt.xlim(min(log_delta), max(log_delta))
+plt.ylim(0, 1)
+plt.legend()
+plt.savefig('./figures/cdf_delta.png')
 
 # Amplification factor for each integration step
 A = [delta_initial_final/delta_per_step[i] for i in range(len(delta_per_step))]
@@ -96,7 +112,7 @@ plt.savefig('./figures/amplification_factor.png')
 # Cumulative sum of the amplification factor (A)
 cumulative_A = np.cumsum(A)
 
-# Cumulative distribution of the amplification factor over time
+# Cumulative distribution of the amplification factor over time  
 plt.figure(figsize=(10, 6))
 plt.plot(T_norm, np.log10(cumulative_A), color='g', alpha=0.7, label="A")
 plt.xlabel(r'$T/T_c$')
@@ -104,7 +120,23 @@ plt.ylabel(r'$\log_{10}(A)$')
 plt.title('Cumulative Distribution of Amplification Factor Over Time')
 plt.grid(True)
 plt.legend()
-plt.savefig('./figures/cumulative_A.png')
+plt.savefig('./figures/cumulative_A.png') # Not sure this plot is meaningful
+
+# Compute and sort in ascending order
+log_A = np.sort(np.log10(A))
+# Compute the CDF: cumulative probability for each value
+cdf = np.arange(1, len(log_A) + 1) / len(log_A)
+
+plt.figure(figsize=(10, 6))
+plt.plot(log_A, cdf, color='g', alpha=0.7, label="CDF of log10(A)")
+plt.xlabel(r'$\log_{10}(A)$')
+plt.ylabel(r'$f_{CDF}$')
+plt.title('Cumulative Distribution Function of Amplification Factor')
+plt.grid(True)
+plt.xlim(min(log_A), max(log_A))
+plt.ylim(0, 1)
+plt.legend()
+plt.savefig('./figures/cdf_A.png')
 
 # Metric
 # It is the sum of the squared distances between every pair of bodies
@@ -146,15 +178,27 @@ plt.ylabel(r'$\log_{10}(ds^2)$')
 plt.grid(True)
 plt.savefig('./figures/metric_evolution.png')
 
+T_norm = np.array([timesteps[i] / T_c for i in range(len(delta_per_step))])
 # Lyapunov exponent, for each integration step
-l_exponent = [np.log10(A[i]) / T_norm[i] for i in range(len(A))]
+l_exponent = np.array([np.log10(A[i]) / timesteps[i] for i in range(len(A))])
 # Lyapunov timescale (the inverse)
-l_timescale = [1 / l_exponent[i] for i in range(len(l_exponent))]
+l_timescale = np.array([1 / l_exponent[i] for i in range(len(l_exponent))])
 
-# Lyapunov timescale vs T/T_c
+# CDF of the Lyapunov timescale (log T_lambda/T_c)
+log_l_timescale = np.sort(np.log10(l_timescale/T_norm))
+cdf_l_timescale = np.arange(1, len(log_l_timescale) + 1) / len(log_l_timescale)
+
 plt.figure(figsize=(10, 6))
-plt.scatter(T_norm, np.log10(l_timescale), color='b', alpha=0.5)
-plt.xlabel(r'$T/T_c$')
-plt.ylabel(r'$\log_{10}(\tau_{Lyap})$')
+plt.plot(log_l_timescale, cdf_l_timescale, color='g', alpha=0.7, label=r"CDF of $\log10(T_\lambda/T_c)$")
+plt.xlabel(r'$\log10(T_\lambda/T_c)$')
+plt.ylabel(r'$f_{CDF}$')
+plt.title('Cumulative Distribution Function of Lyapunov Timescale')
 plt.grid(True)
-plt.savefig('./figures/lyapunov_timescale.png')
+plt.xlim(min(log_l_timescale), max(log_l_timescale))
+plt.ylim(0, 1)
+plt.legend()
+plt.savefig('./figures/cdf_t_lambda.png')
+
+
+
+
