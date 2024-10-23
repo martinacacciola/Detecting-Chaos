@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+from scipy.stats import ks_2samp
 
 df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv')
 
@@ -120,7 +121,108 @@ plt.ylabel(r'$\log_{10}(A)$')
 plt.title('Cumulative Distribution of Amplification Factor Over Time')
 plt.grid(True)
 plt.legend()
-plt.savefig('./figures/cumulative_A.png') # Not sure this plot is meaningful
+plt.savefig('./figures/cumulative_A.png') 
+
+# Now we want to understand if the distribution of slopes is the same on =/ parts of the curve
+# We divide the curve in two halves and compare the distributions of the slopes
+
+# Split data into two halves
+mid_index = len(T_norm) // 2
+
+T_norm_first_half = T_norm[:mid_index]
+A_first_half = A[:mid_index]
+
+T_norm_second_half = T_norm[mid_index:]
+A_second_half = A[mid_index:]
+
+# Adjust the times of the 2nd half to start from 0
+# In this way it's easier to compare the two curves
+T_norm_second_half_adjusted = [t - T_norm_second_half[0] for t in T_norm_second_half]
+
+# Cumulative sums 
+cumulative_A_first_half = np.cumsum(A_first_half)
+cumulative_A_second_half = np.cumsum(A_second_half)
+
+plt.figure(figsize=(10, 6))
+plt.plot(T_norm_first_half, np.log10(cumulative_A_first_half), color='r', label='First Half', alpha=0.7)
+plt.plot(T_norm_second_half_adjusted, np.log10(cumulative_A_second_half), color='b', label='Second Half', alpha=0.7)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel(r'$\log_{10}(A)$')
+plt.title('Comparison of Two Halves of Cumulative Amplification Factor')
+plt.grid(True)
+
+plt.legend()
+plt.savefig('./figures/compare_halves_cumulative_A.png')
+
+# Perform the KS test to compare the two distributions
+ks_stat, p_value = ks_2samp(A_first_half, A_second_half)
+
+print("KS Test for 1/2 of the curve:")
+print(f"KS Statistic: {ks_stat}, P-value: {p_value}")
+
+# Same procedure but comparing four sections of the curve
+quarter_index = len(T_norm) // 4
+
+# First quarter
+T_norm_first = T_norm[:quarter_index]
+A_first = A[:quarter_index]
+
+# Second quarter
+T_norm_second = T_norm[quarter_index:2*quarter_index]
+A_second = A[quarter_index:2*quarter_index]
+
+# Third quarter
+T_norm_third = T_norm[2*quarter_index:3*quarter_index]
+A_third = A[2*quarter_index:3*quarter_index]
+
+# Fourth quarter
+T_norm_fourth = T_norm[3*quarter_index:]
+A_fourth = A[3*quarter_index:]
+
+# Adjust T_norm for each quarter to start from 0
+T_norm_first_adjusted = [t - T_norm_first[0] for t in T_norm_first]
+T_norm_second_adjusted = [t - T_norm_second[0] for t in T_norm_second]
+T_norm_third_adjusted = [t - T_norm_third[0] for t in T_norm_third]
+T_norm_fourth_adjusted = [t - T_norm_fourth[0] for t in T_norm_fourth]
+
+# Compute cumulative sums for each quarter
+cumulative_A_first = np.cumsum(A_first)
+cumulative_A_second = np.cumsum(A_second)
+cumulative_A_third = np.cumsum(A_third)
+cumulative_A_fourth = np.cumsum(A_fourth)
+
+# Plot the four quarters
+plt.figure(figsize=(10, 6))
+plt.plot(T_norm_first_adjusted, np.log10(cumulative_A_first), color='r', label='First Quarter', alpha=0.7)
+plt.plot(T_norm_second_adjusted, np.log10(cumulative_A_second), color='b', label='Second Quarter', alpha=0.7)
+plt.plot(T_norm_third_adjusted, np.log10(cumulative_A_third), color='g', label='Third Quarter', alpha=0.7)
+plt.plot(T_norm_fourth_adjusted, np.log10(cumulative_A_fourth), color='m', label='Fourth Quarter', alpha=0.7)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel(r'$\log_{10}(A)$')
+plt.title('Comparison of Four Quarters of Cumulative Amplification Factor')
+plt.grid(True)
+plt.legend()
+plt.savefig('./figures/compare_four_quarters_cumulative_A.png')
+
+# Perform the KS test between each pair of quarters
+ks_stat_1_2, p_value_1_2 = ks_2samp(A_first, A_second)
+ks_stat_1_3, p_value_1_3 = ks_2samp(A_first, A_third)
+ks_stat_1_4, p_value_1_4 = ks_2samp(A_first, A_fourth)
+ks_stat_2_3, p_value_2_3 = ks_2samp(A_second, A_third)
+ks_stat_2_4, p_value_2_4 = ks_2samp(A_second, A_fourth)
+ks_stat_3_4, p_value_3_4 = ks_2samp(A_third, A_fourth)
+
+
+print("KS Test for 1/4 of the curve:")
+print(f"KS Statistic (1st vs 2nd): {ks_stat_1_2}, P-value: {p_value_1_2}")
+print(f"KS Statistic (1st vs 3rd): {ks_stat_1_3}, P-value: {p_value_1_3}")
+print(f"KS Statistic (1st vs 4th): {ks_stat_1_4}, P-value: {p_value_1_4}")
+print(f"KS Statistic (2nd vs 3rd): {ks_stat_2_3}, P-value: {p_value_2_3}")
+print(f"KS Statistic (2nd vs 4th): {ks_stat_2_4}, P-value: {p_value_2_4}")
+print(f"KS Statistic (3rd vs 4th): {ks_stat_3_4}, P-value: {p_value_3_4}")
+
+
+#######
 
 # Compute and sort in ascending order
 log_A = np.sort(np.log10(A))
@@ -198,6 +300,9 @@ plt.xlim(min(log_l_timescale), max(log_l_timescale))
 plt.ylim(0, 1)
 plt.legend()
 plt.savefig('./figures/cdf_t_lambda.png')
+
+
+
 
 
 
