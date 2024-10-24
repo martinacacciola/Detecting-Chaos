@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
+import seaborn as sns
 from scipy.stats import ks_2samp
 
 df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv')
@@ -141,6 +142,7 @@ def compare_distribution(num_windows):
     
     plt.figure(figsize=(10, 6))
     colors = ['r', 'b', 'g', 'm', 'c', 'y']  # Add more colors if num_windows > 6
+    #cmap = plt.cm.get_cmap('tab10', num_windows)
     for i in range(num_windows):
         plt.plot(T_norm_windows_adjusted[i], np.log10(cumulative_A_windows[i]), color=colors[i % len(colors)], label=f'Window {i + 1}', alpha=0.7)
     
@@ -159,6 +161,43 @@ def compare_distribution(num_windows):
             print(f"KS Statistic (Window {i + 1} vs Window {j + 1}): {ks_stat}, P-value: {p_value}")
 
 compare_distribution(4) 
+
+#####
+## TRYING W SLOPES OF A
+
+def compute_slopes(T_norm, A, window_size):
+    slopes = []
+    for i in range(0, len(T_norm) - window_size):
+        # Calculate the slope over the window
+        delta_A = A[i + window_size] - A[i]
+        delta_T = T_norm[i + window_size] - T_norm[i]
+        slope = delta_A / delta_T
+        slopes.append(slope)
+    return np.array(slopes)
+
+def plot_slope_A(T_norm, A, window_size):
+    slopes_A = compute_slopes(T_norm, A, window_size)
+
+    # Distribution of the slopes using histogram
+    plt.figure(figsize=(10, 6))
+    
+    sns.histplot(slopes_A, bins=30, alpha=0.7, label=f'Slope Distribution of A (window_size={window_size})') # Decide if keep or not kde
+
+    plt.xlabel('Slope of A (dA/dT)')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Slopes of Amplitude Factor (A)')
+    plt.grid(True)
+    plt.legend()
+    plt.savefig('figures/slope_A.png')
+
+
+plot_slope_A(T_norm, A, window_size=1000)
+
+
+
+
+
+
 
 
 #######
