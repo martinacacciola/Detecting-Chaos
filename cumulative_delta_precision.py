@@ -43,7 +43,7 @@ def compute_delta(forward_state, backward_state):
     diff_vel = (vx_f - vx_b)**2 + (vy_f - vy_b)**2 + (vz_f - vz_b)**2
     diff_pos = (x_f - x_b)**2 + (y_f - y_b)**2 + (z_f - z_b)**2
     
-    return cdiff_vel + diff_pos
+    return diff_vel + diff_pos
 
 
 # Flip the order of the backward trajectory
