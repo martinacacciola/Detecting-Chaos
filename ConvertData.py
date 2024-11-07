@@ -1,7 +1,7 @@
 import csv
 
-input_file = './Brutus data/plummer_triples_L0_00_i1966_e90_Lw392.diag'
-output_file = './Brutus data/plummer_triples_L0_00_i1966_e90_Lw392.csv'
+input_file = './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.diag'
+output_file = './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv'
 
 # Open the input .diag file in read mode and the output CSV file in write mode
 with open(input_file, 'r') as diag_file, open(output_file, 'w', newline='') as csv_file:
@@ -81,13 +81,13 @@ with open(input_file, 'r') as diag_file, open(output_file, 'w', newline='') as c
                 print(f"Skipping line {i + particle_num + 1}: {lines[i + particle_num + 1].strip()} - invalid particle data")
                 continue
             
-            mass = float(particle_data[0])
-            x_pos = float(particle_data[1])
-            y_pos = float(particle_data[2])
-            z_pos = float(particle_data[3])
-            x_vel = float(particle_data[4])
-            y_vel = float(particle_data[5])
-            z_vel = float(particle_data[6])
+            mass = particle_data[0]
+            x_pos = particle_data[1]
+            y_pos = particle_data[2]
+            z_pos = particle_data[3]
+            x_vel = particle_data[4]
+            y_vel = particle_data[5]
+            z_vel = particle_data[6]
             
             # Write particle data to CSV, including the phase
             csv_writer.writerow([timestep, particle_num + 1, mass, x_pos, y_pos, z_pos, x_vel, y_vel, z_vel, phase])
