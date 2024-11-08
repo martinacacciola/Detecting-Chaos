@@ -30,6 +30,7 @@ mp.dps = max_decimal_places
 mp.prec = 3.33 * max_decimal_places  # Set precision to 3.33 times the decimal places
 print(f"Global decimal places set to: {mp.dps}")
 
+# takes input value (expected to be a string) and converts it to mpf object
 def string_to_mpf(value):
     return mp.mpf(value)
 
@@ -82,8 +83,10 @@ def compute_delta(forward_state, backward_state):
     # Compute the phase-space distance for this particle using mpmath
     diff_vel = [mp.mpf((vx_f[i] - vx_b[i])**2 + (vy_f[i] - vy_b[i])**2 + (vz_f[i] - vz_b[i])**2) for i in range(len(vx_f))]
     diff_pos = [mp.mpf((x_f[i] - x_b[i])**2 + (y_f[i] - y_b[i])**2 + (z_f[i] - z_b[i])**2) for i in range(len(x_f))]
+
+    delta = mp.sqrt(sum(diff_vel) + sum(diff_pos))
     
-    return sum(diff_vel) + sum(diff_pos)
+    return delta
 
 # Compute delta at each symmetric timestep
 delta_per_step = []
@@ -108,12 +111,12 @@ for i in range(len(timesteps_forward)):
     delta_per_step.append(delta_sum)  # Append the delta summed over the bodies for this timestep
 
 # Check precision for the first 10 results of delta per step
-    if i < 10:
-        print(f"Precision of delta_sum at timestep {i}: {mp.nstr(delta_sum, max_decimal_places)}")
+    #if i > 1500:
+        #print(f"Precision of delta_sum at timestep {i}: {mp.nstr(delta_sum, max_decimal_places)}")
 
 # Print the precision of the first 10 delta_per_step results
-for j in range(min(10, len(delta_per_step))):
-    print(f"delta_per_step[{j}]: {mp.nstr(delta_per_step[j], max_decimal_places)}")
+#for j in range(min(10, len(delta_per_step))):
+    #print(f"delta_per_step[{j}]: {mp.nstr(delta_per_step[j], max_decimal_places)}")
 
 # Compute delta between initial and final states
 delta_initial_final = mp.mpf(0)  # Initialize as mp.mpf for high precision
@@ -142,6 +145,7 @@ plt.figure(figsize=(10, 6))
 plt.plot(T_norm, np.flip(delta_per_step), color='b', alpha=0.5)
 plt.xlabel(r'$T/T_c$')
 plt.ylabel(r'$\delta$')
+plt.yscale('log')
 plt.title('Phase-Space Distance Over Lifetime')
 plt.grid(True)
 plt.savefig('./figures/phasespacedist.png')
