@@ -7,17 +7,17 @@ from mpmath import mp
 
 pd.options.display.float_format = "{:,.120f}".format 
 
-df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv', dtype=str) #float_precision='round_trip'
-print('the first 5 positions are:', df['X Position'].head())
-print('the first 5 velocities are:', df['X Velocity'].head())
-print('the decimal places in the first 5 positions are:', df['X Position'].apply(lambda x: len(x.split('.')[1])).head())
+df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv', dtype=str) 
+#print('the first 5 positions are:', df['X Position'].head())
+#print('the first 5 velocities are:', df['X Velocity'].head())
+#print('the decimal places in the first 5 positions are:', df['X Position'].apply(lambda x: len(x.split('.')[1])).head())
 
 def count_decimals(value):
     if '.' in value:
         return len(value.split('.')[1])
     return 0
-decimal_places = df['X Position'].apply(count_decimals).head()
-print('the decimal places in the first 5 positions are:', decimal_places)
+#decimal_places = df['X Position'].apply(count_decimals).head()
+#print('the decimal places in the first 5 positions are:', decimal_places)
 #until this point right number of decimals
 
 # Find the maximum number of decimal places in the necessary columns
@@ -28,7 +28,7 @@ for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity'
 # Set the global decimal places
 mp.dps = max_decimal_places
 mp.prec = 3.33 * max_decimal_places  # Set precision to 3.33 times the decimal places
-print(f"Global decimal places set to: {mp.dps}")
+#print(f"Global decimal places set to: {mp.dps}")
 
 # takes input value (expected to be a string) and converts it to mpf object
 def string_to_mpf(value):
@@ -45,13 +45,8 @@ def count_decimal_places_mpf(value):
         return len(value_str.split('.')[1])
     return 0
 
-decimal_places_after = df['X Position'].apply(count_decimal_places_mpf).head()
-print('The decimal places in the first 5 positions after conversion are:', decimal_places_after)
-
-# Verify the values with high precision
-#for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']:
-    #for index, value in enumerate(df[col].head()):
-        #print(f'Original {col} [{index}]: {mp.nstr(value, max_decimal_places)}')
+#decimal_places_after = df['X Position'].apply(count_decimal_places_mpf).head()
+#print('The decimal places in the first 5 positions after conversion are:', decimal_places_after)
 
 
 # Separate forward and backward trajectories
@@ -110,13 +105,6 @@ for i in range(len(timesteps_forward)):
         
     delta_per_step.append(delta_sum)  # Append the delta summed over the bodies for this timestep
 
-# Check precision for the first 10 results of delta per step
-    #if i > 1500:
-        #print(f"Precision of delta_sum at timestep {i}: {mp.nstr(delta_sum, max_decimal_places)}")
-
-# Print the precision of the first 10 delta_per_step results
-#for j in range(min(10, len(delta_per_step))):
-    #print(f"delta_per_step[{j}]: {mp.nstr(delta_per_step[j], max_decimal_places)}")
 
 # Compute delta between initial and final states
 delta_initial_final = mp.mpf(0)  # Initialize as mp.mpf for high precision
@@ -144,7 +132,7 @@ T_norm = [mp.mpf(timestep) / T_c for timestep in timesteps[:len(delta_per_step)]
 plt.figure(figsize=(10, 6))
 plt.plot(T_norm, np.flip(delta_per_step), color='b', alpha=0.5)
 plt.xlabel(r'$T/T_c$')
-plt.ylabel(r'$\delta$')
+plt.ylabel(r'$\log10(\delta)$')
 plt.yscale('log')
 plt.title('Phase-Space Distance Over Lifetime')
 plt.grid(True)
@@ -158,7 +146,7 @@ cumulative_delta = np.cumsum(np.flip(delta_per_step))
 plt.figure(figsize=(10, 6))
 plt.plot(T_norm, cumulative_delta, color='g', alpha=0.7, label=r"$\delta$")
 plt.xlabel(r'$T/T_c$')
-plt.ylabel(r'$\delta$')
+plt.ylabel(r'$\log10(\delta)$')
 plt.title('Cumulative Distribution of Delta')
 plt.grid(True)
 plt.yscale('log')
@@ -166,4 +154,105 @@ plt.legend()
 plt.savefig('./figures/cumulative_delta.png') 
 plt.show()
 
+########
+## ADDING
+# Amplification factor for each integration step
+A = [delta_initial_final/np.flip(delta_per_step[i]) for i in range(len(delta_per_step))]
+A_cumul = np.cumsum(A)
 
+# Amplification factor over lifetime (cumulative distribution)
+plt.figure(figsize=(10, 6))
+plt.plot(T_norm, A_cumul, color='b', alpha=0.5)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel(r'$\log10(A)$')
+plt.yscale('log')
+plt.grid(True)
+plt.legend()
+plt.title('Amplification Factor')
+plt.show()
+plt.savefig('./figures/A.png')
+
+
+# Metric
+# It is the sum of the squared distances between every pair of bodies
+# Summed over the three particles
+
+# We want to compute the metric considering squared distances between every pair of bodies (j > i)
+# Use i and j as indices to distinguish the particles
+def compute_metric(trajectory, timestep):
+    ds = 0
+    particles_positions = []
+    
+    for p in particles:
+        particle_state = trajectory[(trajectory['Particle Number'] == p) & (trajectory['Timestep'] == timestep)]
+        x, y, z = particle_state['X Position'].values, particle_state['Y Position'].values, particle_state['Z Position'].values
+        particles_positions.append((x, y, z))
+    
+    for i in range(len(particles_positions)):
+        for j in range(i+1, len(particles_positions)):
+            xi, yi, zi = particles_positions[i]
+            xj, yj, zj = particles_positions[j]
+            ds += (xj - xi)**2 + (yj - yi)**2 + (zj - zi)**2
+           
+    return ds
+
+# We want to compute the metric for each integration step
+# Using the forward trajectory 
+metric_per_step = []
+for i in range(len(timesteps) // 2):
+    metric = compute_metric(forward_trajectory, timesteps[i])
+    metric_per_step.append(metric)
+
+# Metric evolution over lifetime
+plt.figure(figsize=(10, 6))
+plt.plot(T_norm, metric_per_step, color='b', alpha=0.5)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel(r'$\log_{10}(ds^2)$')
+plt.yscale('log')
+plt.grid(True)
+plt.title('Metric Evolution Over Lifetime')
+plt.savefig('./figures/metric_evolution.png')
+plt.show()
+
+
+
+
+
+
+""" ## TRYING W SLOPES OF delta
+
+# Using floats
+def compute_slopes(T_norm, d, window_size):
+    # Convert T_norm and d to standard float arrays
+    T_norm = np.array([float(t) for t in T_norm])
+    d = np.array([float(delta) for delta in d])
+    
+    slopes = []
+    for i in range(0, len(T_norm) - window_size):
+        # Calculate the slope over the window
+        delta_d = d[i + window_size] - d[i]
+        delta_T = T_norm[i + window_size] - T_norm[i]
+        slope = delta_d / delta_T
+        slopes.append(slope)
+    return np.array(slopes)
+
+# Update plot_slope_d to ensure numeric type for plotting
+def plot_slope_d(T_norm, d, window_size):
+    # Convert T_norm and cumulative_delta to float arrays
+    T_norm = np.array([float(t) for t in T_norm])
+    d = np.array([float(delta) for delta in d])
+    
+    slopes_d = compute_slopes(T_norm, d, window_size)
+    
+    # Plot the distribution of the slopes
+    plt.figure(figsize=(10, 6))
+    sns.histplot(slopes_d, bins=30, alpha=0.7, label=f'Slope Distribution of delta (window_size={window_size})')
+    plt.xlabel(r'Slope of $\delta$ (d$\delta$/dT)')
+    plt.ylabel('Frequency')
+    plt.title(r'Distribution of Slopes of $\delta$')
+    plt.grid(True)
+    plt.legend()
+    plt.show()
+
+#plot_slope_d(T_norm, cumulative_delta, 1000)
+# all values are in zero - so not using this at the moment """
