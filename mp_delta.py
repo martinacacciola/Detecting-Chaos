@@ -8,19 +8,13 @@ from mpmath import mp
 pd.options.display.float_format = "{:,.120f}".format 
 
 df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv', dtype=str) 
-#print('the first 5 positions are:', df['X Position'].head())
-#print('the first 5 velocities are:', df['X Velocity'].head())
-#print('the decimal places in the first 5 positions are:', df['X Position'].apply(lambda x: len(x.split('.')[1])).head())
 
 def count_decimals(value):
     if '.' in value:
         return len(value.split('.')[1])
     return 0
-#decimal_places = df['X Position'].apply(count_decimals).head()
-#print('the decimal places in the first 5 positions are:', decimal_places)
-#until this point right number of decimals
 
-# Find the maximum number of decimal places in the necessary columns
+# Find the maximum number of decimal places
 max_decimal_places = 0
 for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']:
     max_decimal_places = max(max_decimal_places, df[col].apply(count_decimals).max())
@@ -28,7 +22,6 @@ for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity'
 # Set the global decimal places
 mp.dps = max_decimal_places
 mp.prec = 3.33 * max_decimal_places  # Set precision to 3.33 times the decimal places
-#print(f"Global decimal places set to: {mp.dps}")
 
 # takes input value (expected to be a string) and converts it to mpf object
 def string_to_mpf(value):
@@ -36,17 +29,6 @@ def string_to_mpf(value):
 
 for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']:
     df[col] = df[col].apply(string_to_mpf)
-
-# check the precision of the first 5 positions
-# Check the precision of the first 5 positions after conversion
-def count_decimal_places_mpf(value):
-    value_str = mp.nstr(value, max_decimal_places)
-    if '.' in value_str:
-        return len(value_str.split('.')[1])
-    return 0
-
-#decimal_places_after = df['X Position'].apply(count_decimal_places_mpf).head()
-#print('The decimal places in the first 5 positions after conversion are:', decimal_places_after)
 
 
 # Separate forward and backward trajectories
@@ -94,11 +76,6 @@ for i in range(len(timesteps_forward)):
         
         forward_state = forward_p[forward_p['Timestep'] == timesteps_forward[i]]
         backward_state = backward_p[backward_p['Timestep'] == timesteps_backward[i]]
-        
-        # Check the comparison - seems correct
-        # if i == 30 and p == particles[0]:  # Check for a timestep and for a particle
-            # print("Forward state compared:", forward_state)
-            # print("Backward state compared:", backward_state)
     
         delta = compute_delta(forward_state, backward_state)
         delta_sum += delta
@@ -121,7 +98,6 @@ for p in particles:
   
     delta_initial_final += compute_delta(forward_initial, backward_final)  # Sum over the three particles
     
-print('delta initial final:', delta_initial_final)
 
 # Crossing time 
 T_c = mp.mpf(2) * mp.sqrt(2)
@@ -152,10 +128,9 @@ plt.grid(True)
 plt.yscale('log')
 plt.legend()
 plt.savefig('./figures/cumulative_delta.png') 
-plt.show()
+#plt.show()
 
 ########
-## ADDING
 # Amplification factor for each integration step
 A = [delta_initial_final/np.flip(delta_per_step[i]) for i in range(len(delta_per_step))]
 A_cumul = np.cumsum(A)
@@ -164,13 +139,13 @@ A_cumul = np.cumsum(A)
 plt.figure(figsize=(10, 6))
 plt.plot(T_norm, A_cumul, color='b', alpha=0.5)
 plt.xlabel(r'$T/T_c$')
-plt.ylabel(r'$\log10(A)$')
+plt.ylabel('A')
 plt.yscale('log')
 plt.grid(True)
-plt.legend()
-plt.title('Amplification Factor')
-plt.show()
-plt.savefig('./figures/A.png')
+#plt.legend()
+plt.title('Amplification Factor (Cumulative Distribution)')
+#plt.show()
+#plt.savefig('./figures/A.png')
 
 
 # Metric
@@ -212,6 +187,33 @@ plt.yscale('log')
 plt.grid(True)
 plt.title('Metric Evolution Over Lifetime')
 plt.savefig('./figures/metric_evolution.png')
+#plt.show()
+
+########
+# Instantaneous Lyapunov exponent for each step
+lifetime = T_norm[-1] # Total lifetime 
+lyapunov_exponents = [mp.log(A[i]) / lifetime for i in range(len(A))]
+
+# Plot the distribution of instantaneous Lyapunov exponents
+plt.figure(figsize=(10, 6))
+plt.plot(T_norm, lyapunov_exponents, color='r', alpha=0.7)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel(r'$\lambda$')
+plt.title('Instantaneous Lyapunov Exponent Distribution Over Lifetime')
+plt.grid(True)
+#plt.savefig('./figures/lyapunov_exponent_distribution.png')
+plt.show()
+
+lyapunov_exponents_float = [float(le) for le in lyapunov_exponents]
+# histogram of the distribution of the instantaneous Lyapunov exponents
+plt.figure(figsize=(10, 6))
+sns.histplot(lyapunov_exponents_float, bins=40, kde= True, alpha=0.7, edgecolor='black', stat='density')
+sns.kdeplot(lyapunov_exponents_float, color='r', linewidth=2)
+plt.xlabel('Instantaneous Lyapunov Exponent')
+plt.ylabel('Frequency')
+plt.title('Distribution of Instantaneous Lyapunov Exponents')
+plt.grid(True)
+#plt.savefig('./figures/lyapunov_exp.png')
 plt.show()
 
 
@@ -219,13 +221,149 @@ plt.show()
 
 
 
-""" ## TRYING W SLOPES OF delta
+
+
+
+
+
+
+
+
+
+
+
+
+
+######## DRAFT #################################################
+# plotting the distribution of the finite-time Lyapunov exponents
+def plot_lyapunov_timescale_distribution(A, T_total):
+    lyapunov_timescales = []
+
+    # Compute finite-time Lyapunov timescale for each timestep
+    for amplification_factor in A:
+        #if amplification_factor > 0:  # Avoid log(0) cases
+        lambda_t = mp.log(amplification_factor) / T_total
+        # cumulative distribution for the binning
+        lyapunov_timescale = lambda_t #if lambda_t != 0 else mp.inf  # Avoid division by zero # check why it's happening, should be 1/log(lambda)
+        lyapunov_timescales.append(float(lyapunov_timescale)) 
+
+    
+    # Plotting the distribution of finite-time Lyapunov timescales
+    plt.figure(figsize=(10, 6))
+    sns.histplot(lyapunov_timescales, bins=30, kde= True, alpha=0.7, edgecolor='black', stat='density')
+    sns.kdeplot(lyapunov_timescales, color='r', linewidth=2)
+    plt.xlabel('Finite-Time Lyapunov Timescale')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Finite-Time Lyapunov Timescales')
+    plt.grid(True)
+    plt.savefig('./figures/lyapunov_exp.png')
+    plt.show()
+    
+    return lyapunov_timescales
+
+
+# compute amplification factor for a larger window size (not for each timestep)
+window_size = 1000
+A_window = [delta_initial_final / np.sum(np.flip(delta_per_step[i:i+window_size])) for i in range(len(delta_per_step) - window_size)]
+T_total = T_norm[-1]  # total lifetime
+lyapunov_timescales = plot_lyapunov_timescale_distribution(A_window, T_total)
+
+
+
+########
+# trying with slopes
+def compute_lyapunov_timescale(A, T_norm, finite_time_interval):
+    """
+    Computes the rolling Lyapunov timescale over a finite time interval.
+
+    Parameters:
+    A (list of mp.mpf): List of amplification factors.
+    T_norm (list of mp.mpf): Normalized time list.
+    finite_time_interval (int): Size of the finite time interval.
+
+    Returns:
+    list of mp.mpf: List of Lyapunov timescales.
+    list of mp.mpf: List of midpoints for plotting.
+    """
+    lyapunov_timescale = []
+
+    for i in range(len(A) - finite_time_interval + 1):
+        A_integral = sum(A[i:i + finite_time_interval])
+        T_interval = T_norm[i + finite_time_interval - 1] - T_norm[i]
+        
+        lyapunov_timescale.append(mp.log(A_integral) / T_interval)
+      
+    T_midpoints = T_norm[:len(lyapunov_timescale)]  # Match time points for plotting
+    return lyapunov_timescale, T_midpoints
+
+def compute_slopes(T_norm, lyapunov_timescale, window_size):
+    """
+    Computes the slopes of the Lyapunov timescale over specified time windows.
+
+    Parameters:
+    T_norm (list of mp.mpf): Normalized time list.
+    lyapunov_timescale (list of mp.mpf): List of Lyapunov timescales.
+    window_size (int): Size of the time window.
+
+    Returns:
+    list of floats: Slopes of the Lyapunov timescale.
+    """
+    slopes = []
+    for i in range(len(T_norm) - window_size):
+        delta_lyapunov = lyapunov_timescale[i + window_size] - lyapunov_timescale[i]
+        delta_T = T_norm[i + window_size] - T_norm[i]
+        slope = float(delta_lyapunov) / float(delta_T) if delta_T != 0 else np.nan
+        slopes.append(slope)
+    return slopes
+
+
+def plot_slope_distribution(slopes, window_size):
+    """
+    Plots the distribution of the slopes of the Lyapunov timescale.
+
+    Parameters:
+    slopes (list of floats): Slopes of the Lyapunov timescale.
+    window_size (int): Size of the time window.
+    """
+    # Convert slopes to a numpy array for plotting
+    slopes_np = np.array(slopes)
+
+    # Plot the distribution of the slopes with KDE superimposed
+    plt.figure(figsize=(10, 6))
+    sns.histplot(slopes_np, bins=30, kde=True, alpha=0.7, edgecolor='black')
+    #sns.kdeplot(slopes_np, color='red', linewidth=2)
+    plt.xlabel('Slope of Lyapunov Timescale')
+    plt.ylabel('Density')
+    plt.title(f'Distribution of Slopes of Lyapunov Timescale (Window Size = {window_size})')
+    plt.grid(True)
+    plt.show()
+
+
+
+# Assuming `A` and `T_norm` are already defined and computed
+finite_time_interval = 10  # Example size, adjust as needed
+
+# Compute Lyapunov timescales
+lyapunov_timescale, T_midpoints = compute_lyapunov_timescale(A, T_norm, finite_time_interval)
+
+# Define different time window sizes for slope calculation
+window_sizes = [1, 10, 50, 100, 200]
+
+# Compute and plot the distribution of slopes for each window size
+#
+# for window_size in window_sizes:
+    #slopes = compute_slopes(T_midpoints, lyapunov_timescale, window_size)
+    #plot_slope_distribution(slopes, window_size)
+
+
+""" 
+## TRYING W SLOPES OF delta
 
 # Using floats
 def compute_slopes(T_norm, d, window_size):
     # Convert T_norm and d to standard float arrays
-    T_norm = np.array([float(t) for t in T_norm])
-    d = np.array([float(delta) for delta in d])
+    #T_norm = np.array([float(t) for t in T_norm])
+    #d = np.array([float(delta) for delta in d])
     
     slopes = []
     for i in range(0, len(T_norm) - window_size):
@@ -254,5 +392,6 @@ def plot_slope_d(T_norm, d, window_size):
     plt.legend()
     plt.show()
 
-#plot_slope_d(T_norm, cumulative_delta, 1000)
-# all values are in zero - so not using this at the moment """
+plot_slope_d(T_norm, delta_per_step, 1)
+# all values are in zero - so not using this at the moment
+# maybe problem in the computation of slope, not precise enough? """
