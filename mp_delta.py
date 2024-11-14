@@ -30,7 +30,6 @@ def string_to_mpf(value):
 for col in ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']:
     df[col] = df[col].apply(string_to_mpf)
 
-
 # Separate forward and backward trajectories
 forward_trajectory = df[df['Phase'].astype(int) == 1]
 backward_trajectory = df[df['Phase'].astype(int) == -1]
@@ -97,8 +96,8 @@ for p in particles:
     backward_final = backward_p[backward_p['Timestep'] == final_timestep]
   
     delta_initial_final += compute_delta(forward_initial, backward_final)  # Sum over the three particles
-    
 
+ 
 # Crossing time 
 T_c = mp.mpf(2) * mp.sqrt(2)
 # Normalize lifetime 
@@ -113,6 +112,23 @@ plt.yscale('log')
 plt.title('Phase-Space Distance Over Lifetime')
 plt.grid(True)
 plt.savefig('./figures/phasespacedist.png')
+
+# Compute instantaneous slope of phase-space distance
+delta_log = np.log10(np.array(delta_per_step, dtype=float)) 
+#delta_arr = np.array(delta_per_step, dtype=float)
+slopes = np.diff(delta_log) / np.diff(T_norm)  # Slope calculation using consecutive differences
+slopes_float = [float(slope) for slope in slopes]
+# Plot histogram of slopes
+plt.figure(figsize=(8, 6))
+plt.hist(slopes_float, bins=30, alpha=0.7)
+plt.xlabel('Instantaneous Slope of log10(Phase-Space Distance)')
+plt.ylabel('Frequency')
+plt.title('Distribution of Instantaneous Slope of Phase-Space Distance')
+plt.grid(True)
+#plt.savefig('./figures/slope_histogram.png')
+plt.show()
+T_norm_float = [float(t) for t in T_norm]
+
 
 # Cumulative sum of the phase-space distance (delta)
 # Flip the order to measure separation from beginning of both trajectories
@@ -133,6 +149,7 @@ plt.savefig('./figures/cumulative_delta.png')
 ########
 # Amplification factor for each integration step
 A = [delta_initial_final/np.flip(delta_per_step[i]) for i in range(len(delta_per_step))]
+#print(f"Amplification factor: {A}")
 A_cumul = np.cumsum(A)
 
 # Amplification factor over lifetime (cumulative distribution)
