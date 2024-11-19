@@ -135,10 +135,53 @@ plt.savefig('./figures/slope_manually.png')
 plt.show()
 
 
+# Compute the indices for the windows
+#window_indices = range(0, len(T_norm), window_size)
 
+# Define window size in terms of timesteps (number of points to include in each fit)
+window_size = 4
 
+window_slopes = []
+window_midpoints = []
 
-# Convert T_norm to float
+# iterate over the indices of T_norm in steps of window_size
+for start_idx in range(0, len(T_norm) - window_size + 1, window_size):
+    end_idx = start_idx + window_size
+
+    delta_flip = np.flip(delta_per_step)
+    # select the window over which computing the slopef
+    delta_window = delta_flip[start_idx:end_idx]
+    T_norm_window = T_norm[start_idx:end_idx]
+
+    delta_log_window = np.log10(np.array(delta_window, dtype=float))
+    
+    # compute slope using initial and final values of each window
+    slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
+    window_slopes.append(float(slope))  
+
+    # midpoint of the current time window
+    window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
+
+plt.figure(figsize=(10, 6))
+plt.plot(window_midpoints, window_slopes, color='b', alpha=0.7)
+plt.xlabel(r'$T/T_c$')
+plt.ylabel('Slope')
+plt.title('Slope of log(delta) Over Time')
+plt.grid(True)
+plt.savefig('./figures/slope_window.png')
+plt.show()
+
+# Plot histogram of slopes
+plt.figure(figsize=(8, 6))
+plt.hist(window_slopes, bins=50, alpha=0.7)
+plt.xlabel('Instantaneous Slope of log(delta)')
+plt.ylabel('Frequency')
+plt.title('Distribution of Slope of Phase-Space Distance')
+plt.grid(True)
+plt.savefig('./figures/slope_window_hist.png')
+plt.show()
+
+""" # Convert T_norm to float
 T_norm_float = [float(t) for t in T_norm]
 
 # Define window size (number of points to include in each fit)
@@ -171,6 +214,7 @@ plt.plot(T_norm_midpoints, slopes_window)
 plt.xlabel(r'$T/T_c$')
 plt.ylabel('Slope')
 plt.title('Slope of log(delta) Over Time')
+plt.savefig('./figures/slope_window.png')
 plt.grid(True)
 plt.show()
 
@@ -180,6 +224,7 @@ plt.hist(slopes_window, bins=30, alpha=0.7)
 plt.xlabel('Instantaneous Slope of log(delta)')
 plt.ylabel('Frequency')
 plt.title('Distribution of Slope of Phase-Space Distance')
+plt.savefig('./figures/slope_window_hist.png')
 plt.grid(True)
-plt.show()
+plt.show() """
 
