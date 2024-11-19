@@ -2,8 +2,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import ks_2samp
 from mpmath import mp
+from scipy.optimize import curve_fit
+from scipy.stats import norm
+from sklearn.mixture import GaussianMixture
+
 
 pd.options.display.float_format = "{:,.120f}".format 
 
@@ -39,64 +42,8 @@ total_timesteps = len(df['Timestep'].unique())
 midpoint = total_timesteps // 2  # Midpoint corresponds to t=T=lifetime
 timesteps = df['Timestep'].unique()
 
-# Define symmetric timesteps
-timesteps_forward = timesteps[:midpoint]
-timesteps_backward = timesteps[midpoint+1:][::-1]  # Reverse order for symmetry
-
-# Get unique particles
-particles = df['Particle Number'].unique()
-
-# Phase space distance between two states
-def compute_delta(forward_state, backward_state):
-    # Extract positions and convert to mpmath
-    x_f, y_f, z_f = forward_state['X Position'].values, forward_state['Y Position'].values, forward_state['Z Position'].values
-    x_b, y_b, z_b = backward_state['X Position'].values, backward_state['Y Position'].values, backward_state['Z Position'].values
-
-    # Extract velocities and convert to mpmath
-    vx_f, vy_f, vz_f = forward_state['X Velocity'].values, forward_state['Y Velocity'].values, forward_state['Z Velocity'].values
-    vx_b, vy_b, vz_b = -backward_state['X Velocity'].values, -backward_state['Y Velocity'].values, -backward_state['Z Velocity'].values
-
-    # Compute the phase-space distance for this particle using mpmath
-    diff_vel = [mp.mpf((vx_f[i] - vx_b[i])**2 + (vy_f[i] - vy_b[i])**2 + (vz_f[i] - vz_b[i])**2) for i in range(len(vx_f))]
-    diff_pos = [mp.mpf((x_f[i] - x_b[i])**2 + (y_f[i] - y_b[i])**2 + (z_f[i] - z_b[i])**2) for i in range(len(x_f))]
-
-    delta = mp.sqrt(sum(diff_vel) + sum(diff_pos))
-    
-    return delta
-
-# Compute delta at each symmetric timestep
-delta_per_step = []
-
-for i in range(len(timesteps_forward)):
-    delta_sum = mp.mpf(0)  # Initialize as mp.mpf for high precision
-    for p in particles:
-        forward_p = forward_trajectory[forward_trajectory['Particle Number'] == p]
-        backward_p = backward_trajectory[backward_trajectory['Particle Number'] == p]
-        
-        forward_state = forward_p[forward_p['Timestep'] == timesteps_forward[i]]
-        backward_state = backward_p[backward_p['Timestep'] == timesteps_backward[i]]
-    
-        delta = compute_delta(forward_state, backward_state)
-        delta_sum += delta
-        
-    delta_per_step.append(delta_sum)  # Append the delta summed over the bodies for this timestep
-
-
-# Compute delta between initial and final states
-delta_initial_final = mp.mpf(0)  # Initialize as mp.mpf for high precision
-
-initial_timestep = timesteps[0]  # Start of forward trajectory
-final_timestep = timesteps[-1]   # End of backward trajectory
-
-for p in particles:
-    forward_p = forward_trajectory[forward_trajectory['Particle Number'] == p]
-    backward_p = backward_trajectory[backward_trajectory['Particle Number'] == p]
-    
-    forward_initial = forward_p[forward_p['Timestep'] == initial_timestep]
-    backward_final = backward_p[backward_p['Timestep'] == final_timestep]
-  
-    delta_initial_final += compute_delta(forward_initial, backward_final)  # Sum over the three particles
-
+# take delta per step from txt file
+delta_per_step = np.loadtxt('./data/delta_per_step_L0_00_i1775_e90_Lw392.txt')
  
 # Crossing time 
 T_c = mp.mpf(2) * mp.sqrt(2)
@@ -135,21 +82,21 @@ plt.savefig('./figures/slope_manually.png')
 plt.show()
 
 
-# Compute the indices for the windows
-#window_indices = range(0, len(T_norm), window_size)
-
+##
+# Window slope calculation
 # Define window size in terms of timesteps (number of points to include in each fit)
-window_size = 4
+window_size = 50
 
 window_slopes = []
 window_midpoints = []
 
-# iterate over the indices of T_norm in steps of window_size
-for start_idx in range(0, len(T_norm) - window_size + 1, window_size):
+# iterate over the indices of T_norm in steps of 1
+# in this way we have a comoving window - for each timestep compute slope over the window
+for start_idx in range(0, len(T_norm) - window_size + 1):
     end_idx = start_idx + window_size
 
     delta_flip = np.flip(delta_per_step)
-    # select the window over which computing the slopef
+    # select the window over which computing the slope
     delta_window = delta_flip[start_idx:end_idx]
     T_norm_window = T_norm[start_idx:end_idx]
 
@@ -166,65 +113,99 @@ plt.figure(figsize=(10, 6))
 plt.plot(window_midpoints, window_slopes, color='b', alpha=0.7)
 plt.xlabel(r'$T/T_c$')
 plt.ylabel('Slope')
-plt.title('Slope of log(delta) Over Time')
+plt.title(r'Slope of log($\delta$) Over Time')
 plt.grid(True)
 plt.savefig('./figures/slope_window.png')
 plt.show()
 
-# Plot histogram of slopes
+##
+# 1) fitting a Gaussian and residuals to the histogram of window slopes
+window_midpoints = np.array(window_midpoints, dtype=float)
+mu, std = norm.fit(window_slopes)
+print('mu:', mu)
+print('std:', std)
+hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
+bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+gaussian = norm.pdf(bin_centers, loc=mu, scale=std)
+# compute residuals
+residuals = hist_counts - gaussian
+mu_res, std_res = norm.fit(residuals)
+print('mu_res:', mu_res)
+print('std_res:', std_res)
+gaussian_res = norm.pdf(bin_centers, loc=mu_res, scale=std_res)
+
+# Plot histogram of slopes with Gaussian fit
 plt.figure(figsize=(8, 6))
-plt.hist(window_slopes, bins=50, alpha=0.7)
-plt.xlabel('Instantaneous Slope of log(delta)')
-plt.ylabel('Frequency')
+plt.hist(window_slopes, bins=50, alpha=0.7, density=True, label='Histogram')
+plt.plot(bin_centers, gaussian, color='r', alpha=0.7, label='Gaussian fit')
+# add residual gaussian (if i use gaussian_res flat line)
+plt.plot(bin_centers, residuals, color='b', alpha=0.7, label='Residuals')
+plt.xlabel(r'Slope of log($\delta$)')
+plt.ylabel('Density')
 plt.title('Distribution of Slope of Phase-Space Distance')
+plt.legend()
 plt.grid(True)
 plt.savefig('./figures/slope_window_hist.png')
 plt.show()
 
-""" # Convert T_norm to float
-T_norm_float = [float(t) for t in T_norm]
 
-# Define window size (number of points to include in each fit)
-window_size = 300  # Adjust this value as needed
+##
+# 2) fitting a Gaussian Mixture Model to the window slopes
+window_slopes = np.array(window_slopes)
+gmm = GaussianMixture(n_components=2)
+gmm.fit(window_slopes.reshape(-1, 1))
 
-# Initialize list to store slopes
-slopes_window = []
+# this generates a smooth pdf from the gmm 
+# convert log probabilities to probabilities
+x = np.linspace(min(window_slopes), max(window_slopes), 1000)
+logprob = gmm.score_samples(x.reshape(-1, 1))
+pdf = np.exp(logprob)
 
-# Compute slope for each timestep using a sliding window
-for i in range(len(T_norm_float) - window_size + 1):
-    # Define the window
-    window_T = T_norm_float[i:i + window_size]
-    window_delta_log = delta_log[i:i + window_size]
-    
-    # Fit a linear polynomial (degree 1) to the data in the window
-    coefficients = np.polyfit(window_T, window_delta_log, 1)
-    
-    # Extract the slope (first coefficient)
-    slope = coefficients[0]
-    
-    # Store the slope
-    slopes_window.append(slope)
 
-# Compute midpoints of T_norm intervals for plotting
-T_norm_midpoints = [(T_norm_float[i] + T_norm_float[i + window_size - 1]) / 2 for i in range(len(T_norm_float) - window_size + 1)]
+# Extract the means and covariances of each component
+means = gmm.means_.flatten()
+covariances = gmm.covariances_.flatten()
+weights = gmm.weights_.flatten()
+print('mean and variance of first component:', means[0], covariances[0])
+print('mean and variance of second component:', means[1], covariances[1])
 
-# Plot the slopes against the midpoints
-plt.figure(figsize=(10, 6))
-plt.plot(T_norm_midpoints, slopes_window)
-plt.xlabel(r'$T/T_c$')
-plt.ylabel('Slope')
-plt.title('Slope of log(delta) Over Time')
-plt.savefig('./figures/slope_window.png')
+# Compute the PDF for each component separately
+pdf_individual = [weights[i] * norm.pdf(x, means[i], np.sqrt(covariances[i])) for i in range(gmm.n_components)]
+
+plt.figure(figsize=(8, 6))
+plt.hist(window_slopes, bins=50, alpha=0.5, density=True, label='Histogram')
+#plt.plot(x, pdf, color='r', alpha=0.7, label='Gaussian Mixture fit')
+for i, pdf_i in enumerate(pdf_individual):
+    plt.plot(x, pdf_i, alpha=0.7, label=f'Gaussian {i+1}: mean={means[i]:.3f}, var={covariances[i]:.2f}')
+    # add dotted vertical line at the mean of each component
+    plt.axvline(means[i], color='k', linestyle='dotted')
+    # add label with mean value
+    #plt.text(means[i], 0.1, f'mean={means[i]:.2f}')
+plt.xlabel(r'Slope of log($\delta$)')
+plt.ylabel('Density')
+plt.title('Distribution of Slope of Phase-Space Distance')
+plt.legend()
 plt.grid(True)
 plt.show()
 
-# Plot histogram of slopes
-plt.figure(figsize=(8, 6))
-plt.hist(slopes_window, bins=30, alpha=0.7)
-plt.xlabel('Instantaneous Slope of log(delta)')
-plt.ylabel('Frequency')
-plt.title('Distribution of Slope of Phase-Space Distance')
-plt.savefig('./figures/slope_window_hist.png')
-plt.grid(True)
-plt.show() """
+
+#sns.histplot(window_slopes, bins=40, kde= True, alpha=0.7, edgecolor='black', stat='density')
+#sns.kdeplot(window_slopes, color='r', linewidth=2)
+
+
+
+
+""" 
+# Generate histogram data
+hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
+bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+# Fit a single Gaussian
+mean1, std1 = norm.fit(window_slopes)
+gaussian1 = norm.pdf(bin_centers, loc=mean1, scale=std1)
+
+residuals = hist_counts - gaussian1 """
+
+
+
 
