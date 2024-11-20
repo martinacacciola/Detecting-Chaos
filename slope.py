@@ -85,7 +85,7 @@ plt.show()
 ##
 # Window slope calculation
 # Define window size in terms of timesteps (number of points to include in each fit)
-window_size = 50
+window_size = 40
 
 window_slopes = []
 window_midpoints = []
@@ -192,6 +192,113 @@ plt.show()
 #sns.histplot(window_slopes, bins=40, kde= True, alpha=0.7, edgecolor='black', stat='density')
 #sns.kdeplot(window_slopes, color='r', linewidth=2)
 
+##
+# 3) compute mean and std of the two components for different window sizes
+# the windows goes from 0.5 to 100 with a step of 0.5
+
+# initialize lists to store the means and stds of the two components
+means1, means2, stds1, stds2, window_sizes, peak1_heights, peak2_heights = [], [], [], [], [], [], []
+
+# Iterate over different window sizes, starting from 0.5 and incrementing by 0.5
+for window_size in np.arange(0.5, 100, 0.5):
+    window_slopes = []
+    window_midpoints = []
+
+    # Skip if the window size exceeds the data length
+    if window_size > len(T_norm):
+        continue
+
+    for start_idx in range(0, len(T_norm) - int(window_size) + 1):
+        end_idx = start_idx + int(window_size)
+        delta_flip = np.flip(delta_per_step)
+        delta_window = delta_flip[start_idx:end_idx]
+        T_norm_window = T_norm[start_idx:end_idx]
+
+        delta_log_window = np.log10(np.array(delta_window, dtype=float))
+
+        # ensure there are at least two points to compute slope
+        if len(delta_log_window) < 2:
+            continue
+
+        slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
+        window_slopes.append(float(slope))
+        window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
+
+    # fit gaussian mixture model to the window slopes
+    if window_slopes:
+        window_slopes = np.array(window_slopes)
+        gmm = GaussianMixture(n_components=2)
+        gmm.fit(window_slopes.reshape(-1, 1))
+        means = gmm.means_.flatten()
+        covariances = gmm.covariances_.flatten()
+
+        weights = gmm.weights_.flatten()
+        peak1_height = weights[0] / np.sqrt(2 * np.pi * covariances[0])
+        peak2_height = weights[1] / np.sqrt(2 * np.pi * covariances[1])
+
+
+        means1.append(means[0])
+        means2.append(means[1])
+        stds1.append(np.sqrt(covariances[0]))
+        stds2.append(np.sqrt(covariances[1]))
+        peak1_heights.append(peak1_height)
+        peak2_heights.append(peak2_height)
+        window_sizes.append(window_size)
+
+
+# check values of means for some window sizes
+print('Window sizes:', window_sizes)
+print(f'Window sizes {window_sizes[:5]}: Mean values: {means2[:5]}')
+
+# Plot the evolution of the means of the 2nd component wrt window size
+# not smoothed version
+plt.figure(figsize=(8, 6))
+plt.plot(window_sizes, means2, color='b', alpha=0.7)
+plt.xlabel('Window Size')
+plt.ylabel('Mean of Component 2')
+plt.title('Evolution of the Mean of Component 2 with Window Size')
+plt.savefig('./figures/mean_component2.png')
+plt.grid(True)
+#plt.show()
+
+# moving average to take the avg of fixed number of consecutive points
+# to smooth out short-term fluctuations
+def moving_average(data, points):
+    return np.convolve(data, np.ones(points) / points, mode='valid')
+
+# choose the smoothing window size
+window_size_ma = 10
+
+means1_smoothed = moving_average(means1, window_size_ma)
+std1_smoothed = moving_average(stds1, window_size_ma)
+
+means2_smoothed = moving_average(means2, window_size_ma)
+std2_smoothed = moving_average(stds2, window_size_ma)
+window_sizes_smoothed = moving_average(window_sizes, window_size_ma)
+
+# smoothed evolution of the means wrt window size
+plt.figure(figsize=(8, 6))
+plt.plot(window_sizes_smoothed, means1_smoothed, color='r', alpha=0.7, label=r'$\mu_1$')
+plt.plot(window_sizes_smoothed, means2_smoothed, color='b', alpha=0.3, label=r'$\mu_2$')
+plt.xlabel('Window Size')
+plt.ylabel('Value')
+plt.title(r'Evolution of $\mu$ of the Gaussians with Window Size')
+plt.legend()
+plt.grid(True)
+plt.savefig('./figures/mean_guassian_smoothed.png')
+plt.show()
+
+# smoothed evolution of the std wrt window size
+plt.figure(figsize=(8, 6))
+plt.plot(window_sizes_smoothed, std1_smoothed, color='r', alpha=0.7, label=r'$\sigma_1$')
+plt.plot(window_sizes_smoothed, std2_smoothed, color='b', alpha=0.3, label=r'$\sigma_2$')
+plt.xlabel('Window Size')
+plt.ylabel('Value')
+plt.title(r'Evolution of $\sigma$ of the Gaussians with Window Size')
+plt.legend()
+plt.grid(True)
+plt.savefig('./figures/std_guassian_smoothed.png')
+plt.show()
 
 
 
