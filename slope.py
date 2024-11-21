@@ -8,8 +8,6 @@ from scipy.stats import norm
 from sklearn.mixture import GaussianMixture
 
 
-pd.options.display.float_format = "{:,.120f}".format 
-
 df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv', dtype=str) 
 
 def count_decimals(value):
@@ -122,23 +120,23 @@ plt.show()
 # 1) fitting a Gaussian and residuals to the histogram of window slopes
 window_midpoints = np.array(window_midpoints, dtype=float)
 mu, std = norm.fit(window_slopes)
-print('mu:', mu)
-print('std:', std)
+#print('mu:', mu)
+#print('std:', std)
 hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
 bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 gaussian = norm.pdf(bin_centers, loc=mu, scale=std)
 # compute residuals
 residuals = hist_counts - gaussian
 mu_res, std_res = norm.fit(residuals)
-print('mu_res:', mu_res)
-print('std_res:', std_res)
+#print('mu_res:', mu_res)
+#print('std_res:', std_res)
 gaussian_res = norm.pdf(bin_centers, loc=mu_res, scale=std_res)
 
 # Plot histogram of slopes with Gaussian fit
 plt.figure(figsize=(8, 6))
 plt.hist(window_slopes, bins=50, alpha=0.7, density=True, label='Histogram')
 plt.plot(bin_centers, gaussian, color='r', alpha=0.7, label='Gaussian fit')
-# add residual gaussian (if i use gaussian_res flat line)
+# add residuals (if i use gaussian_res flat line)
 plt.plot(bin_centers, residuals, color='b', alpha=0.7, label='Residuals')
 plt.xlabel(r'Slope of log($\delta$)')
 plt.ylabel('Density')
@@ -154,22 +152,22 @@ plt.show()
 window_slopes = np.array(window_slopes)
 gmm = GaussianMixture(n_components=2)
 gmm.fit(window_slopes.reshape(-1, 1))
+# reshaped into a 2d array as the input required by gmm (even if we have only one feature )
 
 # this generates a smooth pdf from the gmm 
-# convert log probabilities to probabilities
 x = np.linspace(min(window_slopes), max(window_slopes), 1000)
+# compute the log likelihood of each sampe
 logprob = gmm.score_samples(x.reshape(-1, 1))
-pdf = np.exp(logprob)
+pdf = np.exp(logprob) # convert log probabilities to probabilities
 
-
-# Extract the means and covariances of each component
+# extract the means and covariances of each component
 means = gmm.means_.flatten()
 covariances = gmm.covariances_.flatten()
 weights = gmm.weights_.flatten()
-print('mean and variance of first component:', means[0], covariances[0])
-print('mean and variance of second component:', means[1], covariances[1])
+#print('mean and variance of first component:', means[0], covariances[0])
+#print('mean and variance of second component:', means[1], covariances[1])
 
-# Compute the PDF for each component separately
+# pdf computed for each component separately
 pdf_individual = [weights[i] * norm.pdf(x, means[i], np.sqrt(covariances[i])) for i in range(gmm.n_components)]
 
 plt.figure(figsize=(8, 6))
@@ -188,9 +186,6 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
-
-#sns.histplot(window_slopes, bins=40, kde= True, alpha=0.7, edgecolor='black', stat='density')
-#sns.kdeplot(window_slopes, color='r', linewidth=2)
 
 ##
 # 3) compute mean and std of the two components for different window sizes
@@ -236,7 +231,6 @@ for window_size in np.arange(0.5, 100, 0.5):
         peak1_height = weights[0] / np.sqrt(2 * np.pi * covariances[0])
         peak2_height = weights[1] / np.sqrt(2 * np.pi * covariances[1])
 
-
         means1.append(means[0])
         means2.append(means[1])
         stds1.append(np.sqrt(covariances[0]))
@@ -247,8 +241,8 @@ for window_size in np.arange(0.5, 100, 0.5):
 
 
 # check values of means for some window sizes
-print('Window sizes:', window_sizes)
-print(f'Window sizes {window_sizes[:5]}: Mean values: {means2[:5]}')
+#print('Window sizes:', window_sizes)
+#print(f'Window sizes {window_sizes[:5]}: Mean values: {means2[:5]}')
 
 # Plot the evolution of the means of the 2nd component wrt window size
 # not smoothed version
@@ -261,20 +255,20 @@ plt.savefig('./figures/mean_component2.png')
 plt.grid(True)
 #plt.show()
 
-# moving average to take the avg of fixed number of consecutive points
+# convolution to take the avg of fixed number of consecutive points
 # to smooth out short-term fluctuations
-def moving_average(data, points):
+def smoothing(data, points):
     return np.convolve(data, np.ones(points) / points, mode='valid')
 
 # choose the smoothing window size
 window_size_ma = 10
 
-means1_smoothed = moving_average(means1, window_size_ma)
-std1_smoothed = moving_average(stds1, window_size_ma)
+means1_smoothed = smoothing(means1, window_size_ma)
+std1_smoothed = smoothing(stds1, window_size_ma)
 
-means2_smoothed = moving_average(means2, window_size_ma)
-std2_smoothed = moving_average(stds2, window_size_ma)
-window_sizes_smoothed = moving_average(window_sizes, window_size_ma)
+means2_smoothed = smoothing(means2, window_size_ma)
+std2_smoothed = smoothing(stds2, window_size_ma)
+window_sizes_smoothed = smoothing(window_sizes, window_size_ma)
 
 # smoothed evolution of the means wrt window size
 plt.figure(figsize=(8, 6))
