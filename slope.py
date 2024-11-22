@@ -117,7 +117,7 @@ plt.savefig('./figures/slope_window.png')
 plt.show()
 
 ##
-# 1) fitting a Gaussian and residuals to the histogram of window slopes
+""" # 1) fitting a Gaussian and residuals to the histogram of window slopes
 window_midpoints = np.array(window_midpoints, dtype=float)
 mu, std = norm.fit(window_slopes)
 #print('mu:', mu)
@@ -144,7 +144,7 @@ plt.title('Distribution of Slope of Phase-Space Distance')
 plt.legend()
 plt.grid(True)
 plt.savefig('./figures/slope_window_hist.png')
-plt.show()
+plt.show() """
 
 
 ##
@@ -152,7 +152,7 @@ plt.show()
 window_slopes = np.array(window_slopes)
 gmm = GaussianMixture(n_components=2)
 gmm.fit(window_slopes.reshape(-1, 1))
-# reshaped into a 2d array as the input required by gmm (even if we have only one feature )
+# reshaped into a 2d array as the input required by gmm (even if we have only one feature)
 
 # this generates a smooth pdf from the gmm 
 x = np.linspace(min(window_slopes), max(window_slopes), 1000)
@@ -164,15 +164,12 @@ pdf = np.exp(logprob) # convert log probabilities to probabilities
 means = gmm.means_.flatten()
 covariances = gmm.covariances_.flatten()
 weights = gmm.weights_.flatten()
-#print('mean and variance of first component:', means[0], covariances[0])
-#print('mean and variance of second component:', means[1], covariances[1])
 
 # pdf computed for each component separately
 pdf_individual = [weights[i] * norm.pdf(x, means[i], np.sqrt(covariances[i])) for i in range(gmm.n_components)]
 
 plt.figure(figsize=(8, 6))
 plt.hist(window_slopes, bins=50, alpha=0.5, density=True, label='Histogram')
-#plt.plot(x, pdf, color='r', alpha=0.7, label='Gaussian Mixture fit')
 for i, pdf_i in enumerate(pdf_individual):
     plt.plot(x, pdf_i, alpha=0.7, label=f'Gaussian {i+1}: mean={means[i]:.3f}, var={covariances[i]:.2f}')
     # add dotted vertical line at the mean of each component
@@ -186,9 +183,148 @@ plt.legend()
 plt.grid(True)
 plt.show()
 
+## 
+# 3) evaluate the quality of the fit using different window sizes
+""" def evaluate_gmm_fit(window_slopes, window_sizes):
+    bic_scores = {1: [], 2: [], 3: []}
+    aic_scores = {1: [], 2: [], 3: []}
+    
+    for window_size in window_sizes:
+        
+        num_windows = len(window_slopes) - int(window_size) + 1
 
+        if num_windows <= 0:  # Skip window sizes larger than data length
+            break
+        
+        window_slopes_array = np.array(window_slopes).reshape(-1, 1)
+        
+        if len(window_slopes_array) < 2:  # Ensure there are at least 2 samples
+            continue
+        
+        # Fit GMMs with 1, 2, and 3 components on windowed data
+        for n_components in [1, 2, 3]:
+            gmm = GaussianMixture(n_components=n_components)
+            gmm.fit(window_slopes_array)
+            bic_scores[n_components].append(gmm.bic(window_slopes_array))
+            aic_scores[n_components].append(gmm.aic(window_slopes_array))
+        #print(f'Window size: {window_size:.2f} | BIC: {bic_scores} | AIC: {aic_scores}')
+
+    # Plot BIC and AIC scores
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.plot(window_sizes[:len(bic_scores[n_components])], bic_scores[n_components], label=f'BIC: {n_components} components')
+        plt.plot(window_sizes[:len(aic_scores[n_components])], aic_scores[n_components], label=f'AIC: {n_components} components', linestyle='dashed')
+    plt.xlabel('Window Size')
+    plt.ylabel('BIC / AIC')
+    plt.title('BIC and AIC as a Function of Window Size')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+window_sizes = np.arange(0.5, 100, 0.5)
+evaluate_gmm_fit(window_slopes, window_sizes) """
+
+## 3) evaluate quality of the fit using rhe mean of the window slopes
+def evaluate_gmm_fit_mean(window_slopes, window_sizes):
+    bic_scores = {1: [], 2: [], 3: []}
+    aic_scores = {1: [], 2: [], 3: []}
+    residuals_scores = {1: [], 2: [], 3: []}
+    rmse_scores = {1: [], 2: [], 3: []}
+    
+    for window_size in window_sizes:
+        # Apply rolling window: compute mean of each window
+        num_windows = len(window_slopes) - int(window_size) + 1
+        if num_windows <= 0:  # Skip window sizes larger than data length
+            break
+        window_means = []
+        for i in range(num_windows):
+            window_slice = window_slopes[i:i + int(window_size)]
+            if len(window_slice) > 0:  # Ensure the slice is not empty
+                window_means.append(window_slice.mean())
+        window_means = np.array(window_means)
+        
+        if len(window_means) < 2:  # Ensure there are at least 2 samples
+            continue
+        
+        # Fit GMMs with 1, 2, and 3 components on windowed data
+        for n_components in [1, 2, 3]:
+            gmm = GaussianMixture(n_components=n_components)
+            gmm.fit(window_means.reshape(-1, 1))
+            
+            # Compute BIC and AIC
+            bic_scores[n_components].append(gmm.bic(window_means.reshape(-1, 1)))
+            aic_scores[n_components].append(gmm.aic(window_means.reshape(-1, 1)))
+
+            # Calculate residuals
+            x = np.linspace(min(window_slopes), max(window_slopes), 1000)
+            logprob = gmm.score_samples(x.reshape(-1, 1))
+            pdf = np.exp(logprob)
+            hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            residuals = hist_counts - pdf[:len(hist_counts)]
+            residuals_scores[n_components].append(np.sum(residuals**2))
+            rmse_scores[n_components].append(np.sqrt(np.mean(residuals**2)))
+    
+    
+    # Plot BIC and AIC scores
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.plot(window_sizes[:len(bic_scores[n_components])], bic_scores[n_components], label=f'BIC: {n_components} components', alpha=0.7)
+    plt.xlabel('Window Size')
+    plt.ylabel('BIC')
+    plt.title('BIC as Function of Window Size')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.plot(window_sizes[:len(aic_scores[n_components])], aic_scores[n_components], label=f'AIC: {n_components} components', alpha=0.7)
+    plt.xlabel('Window Size')
+    plt.ylabel('AIC')
+    plt.title('AIC as a Function of Window Size')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # Plot Residuals scores
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.plot(window_sizes[:len(residuals_scores[n_components])], residuals_scores[n_components], label=f'Residuals: {n_components} components', alpha=0.7)
+    plt.xlabel('Window Size')
+    plt.ylabel('Residuals')
+    plt.title('Residuals as a Function of Window Size')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # Plot RMSE scores
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.plot(window_sizes[:len(rmse_scores[n_components])], rmse_scores[n_components], label=f'RMSE: {n_components} components', alpha=0.7)
+    plt.xlabel('Window Size')
+    plt.ylabel('RMSE')
+    plt.title('RMSE as a Function of Window Size')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    # Plot Residuals vs. Fitted Values
+    plt.figure(figsize=(12, 6))
+    for n_components in [1, 2, 3]:
+        plt.scatter(bin_centers, residuals, label=f'Residuals: {n_components} components', alpha=0.5)
+    plt.xlabel('Fitted Values')
+    plt.ylabel('Residuals')
+    plt.title('Residuals vs. Fitted Values')
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+window_sizes = np.arange(0.5, 100, 0.5)
+evaluate_gmm_fit_mean(window_slopes, window_sizes)
+    
 ##
-# 3) compute mean and std of the two components for different window sizes
+# 4) compute mean and std of the two components for different window sizes
 # the windows goes from 0.5 to 100 with a step of 0.5
 
 # initialize lists to store the means and stds of the two components
@@ -240,20 +376,16 @@ for window_size in np.arange(0.5, 100, 0.5):
         window_sizes.append(window_size)
 
 
-# check values of means for some window sizes
-#print('Window sizes:', window_sizes)
-#print(f'Window sizes {window_sizes[:5]}: Mean values: {means2[:5]}')
-
 # Plot the evolution of the means of the 2nd component wrt window size
 # not smoothed version
-plt.figure(figsize=(8, 6))
+""" plt.figure(figsize=(8, 6))
 plt.plot(window_sizes, means2, color='b', alpha=0.7)
 plt.xlabel('Window Size')
 plt.ylabel('Mean of Component 2')
 plt.title('Evolution of the Mean of Component 2 with Window Size')
 plt.savefig('./figures/mean_component2.png')
 plt.grid(True)
-#plt.show()
+#plt.show() """
 
 # convolution to take the avg of fixed number of consecutive points
 # to smooth out short-term fluctuations
