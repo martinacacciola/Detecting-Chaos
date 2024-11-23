@@ -261,9 +261,12 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
             pdf = np.exp(logprob)
             hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            #gaussian = np.exp(gmm.score_samples(bin_centers.reshape(-1, 1))) 
             residuals = hist_counts - pdf[:len(hist_counts)]
             residuals_scores[n_components].append(np.sum(residuals**2))
             rmse_scores[n_components].append(np.sqrt(np.mean(residuals**2)))
+
+
     
     
     # Plot BIC and AIC scores
@@ -273,6 +276,7 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.xlabel('Window Size')
     plt.ylabel('BIC')
     plt.title('BIC as Function of Window Size')
+    plt.savefig('./figures/bic_window.png')
     plt.legend()
     plt.grid(True)
     plt.show()
@@ -287,18 +291,20 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.grid(True)
     plt.show()
 
-    # Plot Residuals scores
+    # residuals scores
+    # quantify the overall discrepancy between the observed data and the model's predictions
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.plot(window_sizes[:len(residuals_scores[n_components])], residuals_scores[n_components], label=f'Residuals: {n_components} components', alpha=0.7)
     plt.xlabel('Window Size')
     plt.ylabel('Residuals')
     plt.title('Residuals as a Function of Window Size')
+    plt.savefig('./figures/residuals_window.png')
     plt.legend()
     plt.grid(True)
     plt.show()
 
-    # Plot RMSE scores
+    # RMSE scores
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.plot(window_sizes[:len(rmse_scores[n_components])], rmse_scores[n_components], label=f'RMSE: {n_components} components', alpha=0.7)
@@ -309,7 +315,9 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.grid(True)
     plt.show()
 
-    # Plot Residuals vs. Fitted Values
+    print('residuals:', residuals) 
+    print('residuals scores:', residuals_scores)
+    # residuals vs. fitted values (remove)
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.scatter(bin_centers, residuals, label=f'Residuals: {n_components} components', alpha=0.5)
