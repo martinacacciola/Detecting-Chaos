@@ -60,7 +60,7 @@ T_norm_midpoints = [(T_norm[i] + T_norm[i + 1]) / 2 for i in range(len(T_norm) -
 
 # distribution of slopes over time  
 plt.figure(figsize=(10, 6))
-plt.plot(T_norm_midpoints, slopes, color='g', alpha=0.7)
+plt.plot(T_norm_midpoints, slopes, color='b', alpha=0.7)
 plt.xlabel(r'$T/T_c$')
 plt.ylabel(r'$\log10(slope))$')
 plt.title('Distribution of slopes over time')
@@ -72,7 +72,7 @@ plt.savefig('./figures/slopes_over_time.png')
 # Plot histogram of slopes
 plt.figure(figsize=(8, 6))
 plt.hist(slopes, bins=100, alpha=0.7)
-plt.xlabel('Instantaneous Slope of log(delta)')
+plt.xlabel(r'Instantaneous Slope of log($\delta$)')
 plt.ylabel('Frequency')
 plt.title('Distribution of Instantaneous Slope of Phase-Space Distance')
 plt.grid(True)
@@ -171,7 +171,7 @@ pdf_individual = [weights[i] * norm.pdf(x, means[i], np.sqrt(covariances[i])) fo
 plt.figure(figsize=(8, 6))
 plt.hist(window_slopes, bins=50, alpha=0.5, density=True, label='Histogram')
 for i, pdf_i in enumerate(pdf_individual):
-    plt.plot(x, pdf_i, alpha=0.7, label=f'Gaussian {i+1}: mean={means[i]:.3f}, var={covariances[i]:.2f}')
+    plt.plot(x, pdf_i, alpha=0.7, label=f'Gaussian {i+1}: mean={means[i]:.3f}, var={covariances[i]:.3f}')
     # add dotted vertical line at the mean of each component
     plt.axvline(means[i], color='k', linestyle='dotted')
     # add label with mean value
@@ -181,6 +181,7 @@ plt.ylabel('Density')
 plt.title('Distribution of Slope of Phase-Space Distance')
 plt.legend()
 plt.grid(True)
+plt.savefig('./figures/slope_window_gmm.png')
 plt.show()
 
 ## 
@@ -224,7 +225,7 @@ plt.show()
 window_sizes = np.arange(0.5, 100, 0.5)
 evaluate_gmm_fit(window_slopes, window_sizes) """
 
-## 3) evaluate quality of the fit using rhe mean of the window slopes
+## 3) evaluate quality of the fit using the mean of the window slopes
 def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     bic_scores = {1: [], 2: [], 3: []}
     aic_scores = {1: [], 2: [], 3: []}
@@ -262,13 +263,10 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
             hist_counts, bin_edges = np.histogram(window_slopes, bins=50, density=True)
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             #gaussian = np.exp(gmm.score_samples(bin_centers.reshape(-1, 1))) 
-            residuals = hist_counts - pdf[:len(hist_counts)]
+            residuals = hist_counts - pdf[:len(hist_counts)] # values for the overall fit, not for each component, check
             residuals_scores[n_components].append(np.sum(residuals**2))
             rmse_scores[n_components].append(np.sqrt(np.mean(residuals**2)))
 
-
-    
-    
     # Plot BIC and AIC scores
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
@@ -276,12 +274,12 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.xlabel('Window Size')
     plt.ylabel('BIC')
     plt.title('BIC as Function of Window Size')
-    plt.savefig('./figures/bic_window.png')
     plt.legend()
     plt.grid(True)
+    plt.savefig('./figures/bic_window.png')
     plt.show()
 
-    plt.figure(figsize=(12, 6))
+    """ plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.plot(window_sizes[:len(aic_scores[n_components])], aic_scores[n_components], label=f'AIC: {n_components} components', alpha=0.7)
     plt.xlabel('Window Size')
@@ -289,7 +287,7 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.title('AIC as a Function of Window Size')
     plt.legend()
     plt.grid(True)
-    plt.show()
+    plt.show() """
 
     # residuals scores
     # quantify the overall discrepancy between the observed data and the model's predictions
@@ -299,12 +297,12 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.xlabel('Window Size')
     plt.ylabel('Residuals')
     plt.title('Residuals as a Function of Window Size')
-    plt.savefig('./figures/residuals_window.png')
     plt.legend()
     plt.grid(True)
+    plt.savefig('./figures/residuals_window.png')
     plt.show()
 
-    # RMSE scores
+    # RMSE (root mean square error) scores
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.plot(window_sizes[:len(rmse_scores[n_components])], rmse_scores[n_components], label=f'RMSE: {n_components} components', alpha=0.7)
@@ -315,10 +313,8 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.grid(True)
     plt.show()
 
-    print('residuals:', residuals) 
-    print('residuals scores:', residuals_scores)
     # residuals vs. fitted values (remove)
-    plt.figure(figsize=(12, 6))
+    """ plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
         plt.scatter(bin_centers, residuals, label=f'Residuals: {n_components} components', alpha=0.5)
     plt.xlabel('Fitted Values')
@@ -326,7 +322,7 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.title('Residuals vs. Fitted Values')
     plt.legend()
     plt.grid(True)
-    plt.show()
+    plt.show() """
 
 window_sizes = np.arange(0.5, 100, 0.5)
 evaluate_gmm_fit_mean(window_slopes, window_sizes)
