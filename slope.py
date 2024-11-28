@@ -65,7 +65,7 @@ plt.xlabel(r'$T/T_c$')
 plt.ylabel(r'$\log10(slope))$')
 plt.title('Distribution of slopes over time')
 plt.grid(True)
-plt.legend()
+#plt.legend()
 plt.savefig('./figures/slopes_over_time.png') 
 #plt.show()
 
@@ -267,6 +267,32 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
             residuals_scores[n_components].append(np.sum(residuals**2))
             rmse_scores[n_components].append(np.sqrt(np.mean(residuals**2)))
 
+        # Evaluate optimal window size based on BIC for n_components=2
+        # TODO: sistemare questa parte
+        bic_2 = bic_scores[2]
+        optimal_window_size = {}
+
+        threshold = 10
+        consecutive_count = 5  # Number of consecutive values under the threshold, con 10 e 5 trova 32
+        
+        bic_diffs = np.diff(bic_2)
+        #print('BIC differences:', bic_diffs)
+        
+        stable_index = None
+        for i in range(len(bic_diffs) - consecutive_count + 1):
+            if np.all(np.abs(bic_diffs[i:i + consecutive_count]) < threshold):
+                stable_index = i + consecutive_count - 1  # Last index in the stable sequence
+                break
+        
+        if stable_index is not None:
+            optimal_window_size = window_sizes[stable_index + 1]  # +1 to account for the diff shift
+            #print('the chosen window size is:', optimal_window_size)
+        else:
+            optimal_window_size = window_sizes[np.argmin(bic_2)]
+            #print('the chosen window size is:', optimal_window_size)
+
+
+
     # Plot BIC and AIC scores
     plt.figure(figsize=(12, 6))
     for n_components in [1, 2, 3]:
@@ -288,6 +314,19 @@ def evaluate_gmm_fit_mean(window_slopes, window_sizes):
     plt.legend()
     plt.grid(True)
     plt.show() """
+
+    # Plot BIC scores for n_components=2 and mark the optimal window size
+    plt.figure(figsize=(12, 6))
+    plt.plot(window_sizes[:len(bic_scores[2])], bic_scores[2], label='BIC: 2 components', alpha=0.7)
+    if optimal_window_size:
+        plt.axvline(optimal_window_size, color='r', linestyle='--', label=f'Optimal Window Size: {optimal_window_size}')
+    plt.xlabel('Window Size')
+    plt.ylabel('BIC')
+    plt.title('BIC as Function of Window Size (n_components=2)')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('./figures/bic_window_optimal.png')
+    plt.show()
 
     # residuals scores
     # quantify the overall discrepancy between the observed data and the model's predictions
