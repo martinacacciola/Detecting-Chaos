@@ -1,7 +1,7 @@
 # neural network
 # input: whole trajectory of the triple
-# output: the distribution of lyapunov exponents
-# using the distribution of slopes
+# output: params of the gaussian fit to the distribution of lyapunov exponents
+# using the distribution of slopes as ground truth
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,8 +36,9 @@ def string_to_mpf(value):
 # 1) is it better to use directly window slopes as file? 
 # 2) window size should be the optimal one found for the specific file
 # 3) i think phases are not necessary as output
-# positions_velocities should be of size (n_timesteps, 18)
-def preprocess_trajectory(file_path, delta_file_path, window_size=40):
+# positions_velocities should be of size (n_timesteps, 18) 
+# should we distinguish between particles?
+def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, window_slopes_path=None, gaussian_fit_params_path=None):
     """
     Preprocess trajectory data for use in a neural network.
     
@@ -45,6 +46,9 @@ def preprocess_trajectory(file_path, delta_file_path, window_size=40):
         file_path (str): Path to the trajectory CSV file.
         delta_file_path (str): Path to the delta per step data file.
         window_size (int): Number of timesteps to include in each slope calculation window.
+        delta_per_step_path (str): Path to the precomputed delta per step data file.
+        window_slopes_path (str): Path to the precomputed window slopes data file.
+        gaussian_fit_params_path (str): Path to the precomputed Gaussian fit parameters file.
     
     Returns:
         positions_velocities (np.ndarray): Array of positions and velocities.
@@ -56,8 +60,10 @@ def preprocess_trajectory(file_path, delta_file_path, window_size=40):
     """
     # Load the trajectory data
     df = pd.read_csv(file_path, dtype=str)
-
-    # Identify position and velocity columns
+    #pos_vel_cols = {}
+    particles = df['Particle Number'].unique()
+    # Identify position and velocity columns for each particle
+    #for particle in particles:
     pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
     # Set precision and convert columns to high precision numbers
@@ -65,61 +71,38 @@ def preprocess_trajectory(file_path, delta_file_path, window_size=40):
     for col in pos_vel_cols:
         df[col] = df[col].apply(string_to_mpf)
 
+    # Get unique timesteps
+    timesteps = df['Timestep'].unique()
+    #total_timesteps = len(timesteps)
+
     # Separate forward and backward trajectories
     forward_trajectory = df[df['Phase'].astype(int) == 1]
     backward_trajectory = df[df['Phase'].astype(int) == -1]
-
-    # Get unique timesteps
-    timesteps = df['Timestep'].unique()
-    total_timesteps = len(timesteps)
 
     # Normalize lifetime using crossing time
     T_c = mp.mpf(2) * mp.sqrt(2)
     T_norm = [mp.mpf(timestep) / T_c for timestep in timesteps]
 
-    # Load delta_per_step data
-    delta_per_step = np.loadtxt(delta_file_path)
+    if delta_per_step_path and window_slopes_path and gaussian_fit_params_path:
+    # just considering case in which we provide directly the files
+        delta_per_step = np.loadtxt(delta_per_step_path)
+        window_slopes = np.loadtxt(window_slopes_path)
+        gaussian_fit_params = np.loadtxt(gaussian_fit_params_path)
+    else:
+        raise ValueError("Paths for delta_per_step, window_slopes, and gaussian_fit_params must be provided.")
+    #else:
+        #delta_per_step = np.loadtxt(delta_file_path)
+        #window_slopes = np.zeros(len(delta_per_step))  # Placeholder, replace with actual computation if needed
+        #gaussian_fit_params = np.zeros(len(delta_per_step))  # Placeholder, replace with actual computation if needed
+
     
-    # Flip delta_per_step for consistent slope calculation
-    delta_flip = np.flip(delta_per_step)
-
-    # Logarithm of delta
-    delta_log = np.log10(np.array(delta_flip, dtype=float))
-
-    # Compute midpoints for T_norm intervals
-    T_norm_midpoints = [(T_norm[i] + T_norm[i + 1]) / 2 for i in range(len(T_norm) - 1)]
-
-    # Compute window slopes for ground truth
-    window_slopes = []
-    window_midpoints = []
-
-    for start_idx in range(0, len(delta_flip) - window_size + 1):
-        end_idx = start_idx + window_size
-
-        # Select data within the window
-        delta_window = delta_flip[start_idx:end_idx]
-        T_norm_window = T_norm[start_idx:end_idx]
-
-        delta_log_window = np.log10(np.array(delta_window, dtype=float))
-        
-        # Compute slope over the window
-        # these values represent the ground truth
-        slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
-        window_slopes.append(float(slope))
-
-        # Record the midpoint of the current time window
-        window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
-
     # Convert processed arrays into NumPy arrays for neural network use
     positions_velocities = df[pos_vel_cols].astype(float).to_numpy()
-    phases = df['Phase'].astype(int).to_numpy()
+    #phases = df['Phase'].astype(int).to_numpy()
     timesteps = np.array(T_norm, dtype=float)
-    deltas = np.array(delta_log, dtype=float)
+    deltas = np.array(np.log(delta_per_step), dtype=float)
 
-    # Convert window slopes to NumPy array
-    window_slopes = np.array(window_slopes, dtype=float)
-
-    return positions_velocities, phases, timesteps, deltas, T_norm_midpoints, window_slopes
+    return positions_velocities, timesteps, deltas, window_slopes, gaussian_fit_params
 
 
 
@@ -250,3 +233,50 @@ def build_gmm_decoder(latent_dim, num_components):
         
         return weights, means, stds
  """
+
+
+"""  
+this in preprocess_trajectory if we want to compute ground truth in this file
+
+   else:
+        # Load delta_per_step data
+        delta_per_step = np.loadtxt(delta_file_path)
+        
+        # Flip delta_per_step for consistent slope calculation
+        delta_flip = np.flip(delta_per_step)
+
+        # Logarithm of delta
+        delta_log = np.log10(np.array(delta_flip, dtype=float))
+
+        # Compute midpoints for T_norm intervals
+        T_norm_midpoints = [(T_norm[i] + T_norm[i + 1]) / 2 for i in range(len(T_norm) - 1)]
+
+        # Compute window slopes for ground truth
+        window_slopes = []
+        window_midpoints = []
+
+        for start_idx in range(0, len(delta_flip) - window_size + 1):
+            end_idx = start_idx + window_size
+
+            # Select data within the window
+            delta_window = delta_flip[start_idx:end_idx]
+            T_norm_window = T_norm[start_idx:end_idx]
+
+            delta_log_window = np.log10(np.array(delta_window, dtype=float))
+            
+            # Compute slope over the window
+            # these values represent the ground truth
+            slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
+            window_slopes.append(float(slope))
+
+            # Record the midpoint of the current time window
+            window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
+
+        # Convert window slopes to NumPy array
+        window_slopes = np.array(window_slopes, dtype=float)
+
+    # Convert processed arrays into NumPy arrays for neural network use
+    positions_velocities = df[pos_vel_cols].astype(float).to_numpy()
+    phases = df['Phase'].astype(int).to_numpy()
+    timesteps = np.array(T_norm, dtype=float)
+    deltas = np.array(delta_log, dtype=float) """
