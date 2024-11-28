@@ -6,9 +6,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+#import torch
+#import torch.nn as nn
+#import torch.nn.functional as F
 from mpmath import mp
 import tensorflow as tf
 from tensorflow.keras import layers, models
@@ -103,6 +103,7 @@ def preprocess_trajectory(file_path, delta_file_path, window_size=40):
         delta_log_window = np.log10(np.array(delta_window, dtype=float))
         
         # Compute slope over the window
+        # these values represent the ground truth
         slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
         window_slopes.append(float(slope))
 
@@ -128,11 +129,14 @@ def build_temporal_encoder(input_shape, latent_dim):
 
     Args:
         input_shape (tuple): Shape of the input data (sequence_length, feature_dim).
+        - sequence_length (int): Length of the input sequence (number of timesteps).
+        - feature_dim (int): Dimensionality of input features (e.g., 18 for positions and velocities for three bodies).
         latent_dim (int): Dimension of the latent space for encoded dynamics.
 
     Returns:
         model (tf.keras.Model): A Keras model encoding dynamics into latent representation.
     """
+    # should we set sequence length = number of timesteps?
     inputs = layers.Input(shape=input_shape, name='trajectory_input')
 
     # LSTM layers to process temporal information
@@ -192,7 +196,41 @@ def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, poolin
     return model
 
 
-class TrajectoryToGMM(nn.Module):
+def build_gmm_decoder(latent_dim, num_components):
+    """
+    Builds a neural network decoder to map latent representations to Gaussian Mixture Model (GMM) parameters.
+
+    Args:
+        latent_dim (int): Dimension of the latent input representation.
+        num_components (int): Number of Gaussian components in the mixture.
+
+    Returns:
+        model (tf.keras.Model): A Keras model that decodes latent representations to GMM parameters.
+    """
+    inputs = layers.Input(shape=(latent_dim,), name='latent_input')
+
+    # Fully connected hidden layers for feature transformation
+    x = layers.Dense(64, activation='relu', name='dense_1')(inputs)
+    x = layers.Dense(64, activation='relu', name='dense_2')(x)
+
+    # Output layers for GMM parameters
+    # Mean (linear activation)
+    means = layers.Dense(num_components, activation='linear', name='gmm_means')(x)
+
+    # Standard deviation (softplus activation for positivity)
+    stds = layers.Dense(num_components, activation='softplus', name='gmm_stds')(x)
+
+    # Weights (softmax activation to ensure they sum to 1)
+    weights = layers.Dense(num_components, activation='softmax', name='gmm_weights')(x)
+
+    # Build the model
+    model = models.Model(inputs, [means, stds, weights], name="gmm_decoder")
+    return model
+
+
+
+
+""" class TrajectoryToGMM(nn.Module):
     def __init__(self, input_dim=6, hidden_dim=128, num_layers=2):
         super(TrajectoryToGMM, self).__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True)
@@ -211,4 +249,4 @@ class TrajectoryToGMM(nn.Module):
         weights = F.softmax(self.fc_weights(hidden), dim=1)  # Ensure sum to 1
         
         return weights, means, stds
-
+ """
