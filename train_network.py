@@ -37,7 +37,6 @@ def custom_gmm_loss(y_true, y_pred):
 # Load the data
 forward_trajectories, backward_trajectories, timesteps, deltas, window_slopes, gaussian_fit_params = preprocess_trajectory(
     file_path='./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv',
-    window_size=40,
     delta_per_step_path='./data/delta_per_step_L0_00_i1775_e90_Lw392.txt',
     window_slopes_path='./data/window_slopes_L0_00_i1775_e90_Lw392.txt',
     gaussian_fit_params_path='./data/gmm_parameters_L0_00_i1775_e90_Lw392.txt'
