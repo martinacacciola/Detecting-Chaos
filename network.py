@@ -44,26 +44,26 @@ def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, w
     
     Args:
         file_path (str): Path to the trajectory CSV file.
-        delta_file_path (str): Path to the delta per step data file.
         window_size (int): Number of timesteps to include in each slope calculation window.
         delta_per_step_path (str): Path to the precomputed delta per step data file.
         window_slopes_path (str): Path to the precomputed window slopes data file.
         gaussian_fit_params_path (str): Path to the precomputed Gaussian fit parameters file.
     
     Returns:
-        positions_velocities (np.ndarray): Array of positions and velocities.
-        phases (np.ndarray): Phase labels for the trajectories.
+        forward_trajectories (dict): Dictionary of forward trajectories grouped by particle.
+        backward_trajectories (dict): Dictionary of backward trajectories grouped by particle.
         timesteps (np.ndarray): Normalized timesteps.
         deltas (np.ndarray): Logarithm of delta values.
-        T_norm_midpoints (list): Midpoints of normalized timesteps for slope calculation.
         window_slopes (np.ndarray): Windowed slopes of phase-space distances (ground truth).
+        gaussian_fit_params (np.ndarray): Gaussian fit parameters.
     """
     # Load the trajectory data
     df = pd.read_csv(file_path, dtype=str)
-    #pos_vel_cols = {}
+
+    # Identify unique particles
     particles = df['Particle Number'].unique()
-    # Identify position and velocity columns for each particle
-    #for particle in particles:
+
+    # Identify position and velocity columns
     pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
     # Set precision and convert columns to high precision numbers
@@ -73,7 +73,7 @@ def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, w
 
     # Get unique timesteps
     timesteps = df['Timestep'].unique()
-    #total_timesteps = len(timesteps)
+    total_timesteps = len(timesteps)
 
     # Separate forward and backward trajectories
     forward_trajectory = df[df['Phase'].astype(int) == 1]
@@ -84,62 +84,96 @@ def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, w
     T_norm = [mp.mpf(timestep) / T_c for timestep in timesteps]
 
     if delta_per_step_path and window_slopes_path and gaussian_fit_params_path:
-    # just considering case in which we provide directly the files
         delta_per_step = np.loadtxt(delta_per_step_path)
         window_slopes = np.loadtxt(window_slopes_path)
         gaussian_fit_params = np.loadtxt(gaussian_fit_params_path)
     else:
         raise ValueError("Paths for delta_per_step, window_slopes, and gaussian_fit_params must be provided.")
-    #else:
-        #delta_per_step = np.loadtxt(delta_file_path)
-        #window_slopes = np.zeros(len(delta_per_step))  # Placeholder, replace with actual computation if needed
-        #gaussian_fit_params = np.zeros(len(delta_per_step))  # Placeholder, replace with actual computation if needed
 
-    
+    # Group forward and backward trajectories by particle
+    forward_trajectories = {particle: forward_trajectory[forward_trajectory['Particle Number'] == particle][pos_vel_cols].astype(float).to_numpy() for particle in particles}
+    backward_trajectories = {particle: backward_trajectory[backward_trajectory['Particle Number'] == particle][pos_vel_cols].astype(float).to_numpy() for particle in particles}
+
     # Convert processed arrays into NumPy arrays for neural network use
-    positions_velocities = df[pos_vel_cols].astype(float).to_numpy()
-    #phases = df['Phase'].astype(int).to_numpy()
     timesteps = np.array(T_norm, dtype=float)
     deltas = np.array(np.log(delta_per_step), dtype=float)
 
-    return positions_velocities, timesteps, deltas, window_slopes, gaussian_fit_params
+    return forward_trajectories, backward_trajectories, timesteps, deltas, window_slopes, gaussian_fit_params
 
 
 
-def build_temporal_encoder(input_shape, latent_dim):
+def build_temporal_encoder(sequence_length, feature_dim, latent_dim):
     """
-    Builds a temporal encoder for trajectory data using LSTM layers.
+    Builds a temporal encoder for forward and backward trajectories.
 
     Args:
-        input_shape (tuple): Shape of the input data (sequence_length, feature_dim).
-        - sequence_length (int): Length of the input sequence (number of timesteps).
-        - feature_dim (int): Dimensionality of input features (e.g., 18 for positions and velocities for three bodies).
-        latent_dim (int): Dimension of the latent space for encoded dynamics.
+        sequence_length (int): Length of the input sequence (number of timesteps).
+        feature_dim (int): Dimensionality of input features (e.g., 6 for positions and velocities).
+        latent_dim (int): Dimension of the compact representation.
 
     Returns:
-        model (tf.keras.Model): A Keras model encoding dynamics into latent representation.
+        model (tf.keras.Model): A Keras model encoding trajectory dynamics.
     """
-    # should we set sequence length = number of timesteps?
-    inputs = layers.Input(shape=input_shape, name='trajectory_input')
+    # Inputs for forward and backward trajectories
+    forward_input = layers.Input(shape=(sequence_length, feature_dim), name='forward_trajectory_input')
+    backward_input = layers.Input(shape=(sequence_length, feature_dim), name='backward_trajectory_input')
 
-    # LSTM layers to process temporal information
-    # Return sequences for stacking multiple layers
+     # Split features into positions (first half) and velocities (second half)
+    pos_dim = feature_dim // 2
+    
+    def split_pos_vel(x):
+        positions = x[..., :pos_dim]
+        velocities = x[..., pos_dim:]
+        return positions, velocities
 
-    # processes input seq and outputs seq of hidden states
-    x = layers.LSTM(128, return_sequences=True, activation='tanh', name='lstm_1')(inputs)
-    # summarizes the entire seq into single hidden state vector
-    x = layers.LSTM(128, return_sequences=False, activation='tanh', name='lstm_2')(x)  # Final representation
+    # Process forward trajectory
+    forward_pos, forward_vel = layers.Lambda(split_pos_vel)(forward_input)
+    
+    # Process backward trajectory (flip velocity signs)
+    backward_pos, backward_vel = layers.Lambda(split_pos_vel)(backward_input)
+    backward_vel_flipped = layers.Lambda(lambda x: -x)(backward_vel)
 
-    # Latent representation layer (to encode dynamics of the traj)
-    # dense layer maps the final hidden state to the desired latent dimension
-    latent = layers.Dense(latent_dim, activation='linear', name='latent_layer')(x)
+    # Recombine features
+    forward_features = layers.Concatenate()([forward_pos, forward_vel])
+    backward_features = layers.Concatenate()([backward_pos, backward_vel_flipped])
 
-    # Build model
-    model = models.Model(inputs, latent, name='temporal_encoder')
+    # LSTM layers with attention to learn trajectory relationships
+    forward_encoded = layers.LSTM(128, return_sequences=True, name='forward_lstm')(forward_features)
+    backward_encoded = layers.LSTM(128, return_sequences=True, name='backward_lstm')(backward_features)
+
+    # Self-attention to learn phase space relationships
+    attention = layers.Attention()([forward_encoded, backward_encoded])
+    
+    # Combine features with learned attention
+    combined_features = layers.Concatenate(name='combined_features')([
+        forward_encoded, 
+        backward_encoded,
+        attention
+    ])
+
+    # Flip the phase space distance values - this is for considering the right order
+    flipped_combined_features = layers.Lambda(lambda x: tf.reverse(x, axis=[1]))(combined_features)
+
+    # Aggregate with attention to phase space structure
+    aggregated_features = layers.GlobalAveragePooling1D(name="aggregated_features")(flipped_combined_features)
+    
+    # Add extra layers to learn phase space structure
+    x = layers.Dense(256, activation='relu')(aggregated_features)
+    x = layers.Dense(128, activation='relu')(x)
+    
+    # Compact latent representation
+    latent_representation = layers.Dense(latent_dim, activation='linear', name="latent_representation")(x)
+
+    # Build the model
+    model = models.Model(
+        inputs=[forward_input, backward_input], 
+        outputs=latent_representation, 
+        name="trajectory_encoder"
+    )
     return model
 
 
-
+# dont know if it's needed
 def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, pooling_type="average"):
     """
     Builds a model to aggregate trajectory features into a compact representation.
@@ -209,6 +243,44 @@ def build_gmm_decoder(latent_dim, num_components):
     # Build the model
     model = models.Model(inputs, [means, stds, weights], name="gmm_decoder")
     return model
+
+# to combine encoder and decoder 
+def build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components):
+    """
+    Builds a model to understand the phase space dynamics and predict GMM parameters.
+
+    Args:
+        sequence_length (int): Length of the input sequence (number of timesteps).
+        feature_dim (int): Dimensionality of input features (e.g., 6 for positions and velocities).
+        latent_dim (int): Dimension of the latent representation.
+        num_components (int): Number of Gaussian components in the mixture.
+
+    Returns:
+        model (tf.keras.Model): A Keras model to process trajectories and output GMM parameters.
+    """
+    # Encoder
+    encoder = build_temporal_encoder(sequence_length, feature_dim, latent_dim)
+
+    # Decoder
+    decoder = build_gmm_decoder(latent_dim, num_components)
+
+    # Inputs for forward and backward trajectories
+    forward_input = layers.Input(shape=(sequence_length, feature_dim), name='forward_trajectory_input')
+    backward_input = layers.Input(shape=(sequence_length, feature_dim), name='backward_trajectory_input')
+
+    # Pass through encoder
+    latent_representation = encoder([forward_input, backward_input])
+
+    # Pass latent representation through decoder
+    means, stds, weights = decoder(latent_representation)
+
+    # Concatenate outputs into a single tensor
+    outputs = layers.Concatenate(name="gmm_outputs")([means, stds, weights])
+
+    # Build the full model
+    model = models.Model(inputs=[forward_input, backward_input], outputs=outputs, name="phase_space_model")
+    return model
+
 
 
 
