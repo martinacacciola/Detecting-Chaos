@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, models, losses, optimizers
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 from network import preprocess_trajectory, build_temporal_encoder, build_gmm_decoder, build_phase_space_model
 
 def custom_gmm_loss(y_true, y_pred):
@@ -71,8 +72,6 @@ weights_true = np.tile(gaussian_fit_params[2, :], (forward_inputs.shape[0], 1))
 
 y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
 
-from sklearn.model_selection import train_test_split
-
 # Split the data into training and validation sets
 train_forward_inputs, val_forward_inputs, train_backward_inputs, val_backward_inputs, train_y_true, val_y_true = train_test_split(
     forward_inputs, backward_inputs, y_true, test_size=0.2, random_state=42
@@ -83,12 +82,12 @@ sequence_length = forward_inputs.shape[1]
 feature_dim = forward_inputs.shape[2]
 latent_dim = 128
 num_components = 2 #means_true.shape[0]
-learning_rate = 0.01
+#learning_rate = 0.01
 
 model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)
 
 model.compile(
-    optimizer=optimizers.Adam(learning_rate=learning_rate),
+    optimizer=optimizers.Adam(),
     loss=custom_gmm_loss,
     metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric],
 )
@@ -146,7 +145,7 @@ plt.savefig('./figures/training_validation_history.png')
 plt.show()
 
 
-""" # Function to plot Gaussian distributions
+# Function to plot Gaussian distributions
 def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
     x = np.linspace(-3, 3, 1000)
     plt.figure(figsize=(12, 8))
@@ -168,15 +167,31 @@ def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, w
     plt.xlabel("Value")
     plt.ylabel("Density")
     plt.legend()
-    plt.savefig('./figures/gaussian_comparison.png')
+    plt.savefig('./figures/gaussian_comparison_val.png')
     plt.show()
 
 
 # Get the model predictions
-predictions = model.predict([forward_inputs, backward_inputs])
+predictions = model.predict([val_forward_inputs, val_backward_inputs])
 
-# Ensure the predicted values have the correct shape
-means_pred, stds_pred, weights_pred = predictions
+
+# Split the predictions into means, stds, and weights
+means_pred = predictions[:, :num_components]
+stds_pred = predictions[:, num_components:2*num_components]
+weights_pred = predictions[:, 2*num_components:]
+
+means_pred = means_pred.reshape(-1, num_components)
+stds_pred = stds_pred.reshape(-1, num_components)
+weights_pred = weights_pred.reshape(-1, num_components)
+
+# print predicted vs true values
+print("means_true:", means_true)
+print("means_pred:", means_pred)
+print("stds_true:", stds_true)
+print("stds_pred:", stds_pred)
+print("weights_true:", weights_true)
+print("weights_pred:", weights_pred)
+
 
 # Reshape the predicted values if necessary
 means_pred = means_pred.reshape(-1, num_components)
@@ -184,4 +199,4 @@ stds_pred = stds_pred.reshape(-1, num_components)
 weights_pred = weights_pred.reshape(-1, num_components)
 
 # Plot the Gaussians
-plot_gaussians(means_true[0], stds_true[0], weights_true[0], means_pred[0], stds_pred[0], weights_pred[0], num_components) """
+plot_gaussians(means_true[0], stds_true[0], weights_true[0], means_pred[0], stds_pred[0], weights_pred[0], num_components)
