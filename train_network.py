@@ -88,17 +88,6 @@ model.compile(
     #],
 )
 
-# Assuming gaussian_fit_params has shape (3, num_components)
-# Expand the dimensions of each component to match the input batch size
-means_true = np.tile(gaussian_fit_params[0, :][np.newaxis, :], (forward_inputs.shape[0], 1))
-stds_true = np.tile(gaussian_fit_params[1, :][np.newaxis, :], (forward_inputs.shape[0], 1))
-weights_true = np.tile(gaussian_fit_params[2, :][np.newaxis, :], (forward_inputs.shape[0], 1))
-
-# Verify the shapes
-print("means_true shape:", means_true.shape)  # Should be (batch_size, num_components)
-print("stds_true shape:", stds_true.shape)   # Should be (batch_size, num_components)
-print("weights_true shape:", weights_true.shape)  # Should be (batch_size, num_components)
-
 # Concatenate true values for the loss function
 y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
 
