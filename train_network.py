@@ -15,8 +15,7 @@ def custom_gmm_loss(y_true, y_pred):
     Returns:
         Tensor: Combined loss value.
     """
-    # Determine the number of Gaussian components
-    num_components = y_true.shape[1] // 3
+
 
     # Split y_true and y_pred into means, stds, and weights
     means_true, stds_true, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
@@ -29,9 +28,21 @@ def custom_gmm_loss(y_true, y_pred):
 
     return mean_loss + std_loss + weight_loss
 
+# Custom metrics
+def mean_loss_metric(y_true, y_pred):
+    means_true, _, _ = tf.split(y_true, num_or_size_splits=3, axis=1)
+    means_pred, _, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    return tf.reduce_mean(tf.square(means_true - means_pred))
 
+def std_loss_metric(y_true, y_pred):
+    _, stds_true, _ = tf.split(y_true, num_or_size_splits=3, axis=1)
+    _, stds_pred, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    return tf.reduce_mean(tf.square(stds_true - stds_pred))
 
-
+def weight_loss_metric(y_true, y_pred):
+    _, _, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
+    _, _, weights_pred = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    return tf.reduce_mean(losses.categorical_crossentropy(weights_true, weights_pred))
 
 
 # Load the data
@@ -61,22 +72,21 @@ weights_true = np.tile(gaussian_fit_params[2, :], (forward_inputs.shape[0], 1))
 # Build the model
 sequence_length = forward_inputs.shape[1]
 feature_dim = forward_inputs.shape[2]
-latent_dim = 64
+latent_dim = 128
 num_components = 2 #means_true.shape[0]
+learning_rate=0.01 
 
 model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)
 
 model.compile(
-    optimizer=optimizers.Adam(),
+    optimizer=optimizers.Adam(learning_rate=learning_rate),
     loss=custom_gmm_loss,
-    metrics=[
-        tf.keras.metrics.MeanSquaredError(name="mean_mse"),
-        tf.keras.metrics.MeanSquaredError(name="std_mse"),
-        tf.keras.metrics.CategoricalCrossentropy(name="weight_cce"),
-    ],
+    metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric],
+        #tf.keras.metrics.MeanSquaredError(name="mean_mse"),
+        #tf.keras.metrics.MeanSquaredError(name="std_mse"),
+        #tf.keras.metrics.CategoricalCrossentropy(name="weight_cce"),
+    #],
 )
-
-
 
 # Assuming gaussian_fit_params has shape (3, num_components)
 # Expand the dimensions of each component to match the input batch size
@@ -114,7 +124,7 @@ plt.legend()
 
 # Plot mean MSE
 plt.subplot(2, 2, 2)
-plt.plot(history.history['mean_mse'], label='Mean MSE')
+plt.plot(history.history['mean_loss_metric'], label='Mean MSE')
 plt.title('Mean MSE')
 plt.xlabel('Epoch')
 plt.ylabel('Mean MSE')
@@ -122,7 +132,7 @@ plt.legend()
 
 # Plot std MSE
 plt.subplot(2, 2, 3)
-plt.plot(history.history['std_mse'], label='Std MSE')
+plt.plot(history.history['std_loss_metric'], label='Std MSE')
 plt.title('Std MSE')
 plt.xlabel('Epoch')
 plt.ylabel('Std MSE')
@@ -130,7 +140,7 @@ plt.legend()
 
 # Plot weight CCE
 plt.subplot(2, 2, 4)
-plt.plot(history.history['weight_cce'], label='Weight CCE')
+plt.plot(history.history['weight_loss_metric'], label='Weight CCE')
 plt.title('Weight CCE')
 plt.xlabel('Epoch')
 plt.ylabel('Weight CCE')
