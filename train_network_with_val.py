@@ -1,8 +1,10 @@
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorflow.keras import layers, models, losses, optimizers
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
+from scipy.stats import norm
 from network import preprocess_trajectory, build_temporal_encoder, build_gmm_decoder, build_phase_space_model
 
 def custom_gmm_loss(y_true, y_pred):
@@ -101,6 +103,10 @@ history = model.fit(
     batch_size=32,
 )
 
+# Save history
+# this will be used to do do hyperparameter tuning in the grid search
+#pd.DataFrame(history.history).to_csv('./saved_results/training_history.csv', index=False)
+
 # Plot the training and validation history
 plt.figure(figsize=(12, 8))
 
@@ -147,31 +153,31 @@ plt.show()
 
 # Function to plot Gaussian distributions
 def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
-    x = np.linspace(-3, 3, 1000)
-    plt.figure(figsize=(12, 8))
+    x = np.linspace(-10, 10, 1000)  # Adjust the range as needed
 
-    for i in range(num_components):
-        # True Gaussian
-        y_true = weights_true[i] * (1 / (stds_true[i] * np.sqrt(2 * np.pi))) * np.exp(
-            -0.5 * ((x - means_true[i]) / stds_true[i]) ** 2
-        )
-        plt.plot(x, y_true, label=f"True Gaussian {i+1}", linestyle="dashed")
+    # PDF computed for each component separately
+    pdf_individual_true = [weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
+    pdf_individual_pred = [weights_pred[i] * norm.pdf(x, means_pred[i], stds_pred[i]) for i in range(num_components)]
 
-        # Predicted Gaussian
-        y_pred = weights_pred[i] * (1 / (stds_pred[i] * np.sqrt(2 * np.pi))) * np.exp(
-            -0.5 * ((x - means_pred[i]) / stds_pred[i]) ** 2
-        )
-        plt.plot(x, y_pred, label=f"Predicted Gaussian {i+1}")
-
-    plt.title("True vs Predicted Gaussians")
-    plt.xlabel("Value")
-    plt.ylabel("Density")
+    plt.figure(figsize=(8, 6))
+    for i, pdf_i in enumerate(pdf_individual_true):
+        plt.plot(x, pdf_i, alpha=0.7, label=f'True Gaussian {i+1}: mean={means_true[i]:.3f}, std={stds_true[i]:.3f}')
+        plt.axvline(means_true[i], color='k', linestyle='dotted')
+    for i, pdf_i in enumerate(pdf_individual_pred):
+        plt.plot(x, pdf_i, alpha=0.7, linestyle='--', label=f'Pred Gaussian {i+1}: mean={means_pred[i]:.3f}, std={stds_pred[i]:.3f}')
+        plt.axvline(means_pred[i], color='r', linestyle='dotted')
+    plt.xlabel('Value')
+    plt.ylabel('Density')
+    plt.title('True vs Predicted Gaussian Distributions')
     plt.legend()
-    plt.savefig('./figures/gaussian_comparison_val.png')
+    plt.grid(True)
+    #plt.savefig('./figures/gaussian_comparison_val.png')
     plt.show()
 
 
-# Get the model predictions
+# Get the model predictions 
+# we should use validation data to evaluate performance of the model on useen data
+#predictions = model.predict([train_forward_inputs, train_backward_inputs])
 predictions = model.predict([val_forward_inputs, val_backward_inputs])
 
 
