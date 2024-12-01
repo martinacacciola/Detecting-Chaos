@@ -9,11 +9,10 @@ from sklearn.model_selection import GridSearchCV, train_test_split
 from network import preprocess_trajectory, build_phase_space_model
 
 # Define a function to create the model
-#prova a mettere none in ogni attributo
-def create_model(learning_rate=0.001, latent_dim=64, num_components=2, optimizer='adam', **kwargs):
+""" def create_model(learning_rate=0.001, latent_dim=64, num_components=2, optimizer='adam', **kwargs):
     sequence_length = forward_inputs.shape[1]
     feature_dim = forward_inputs.shape[2]
-    model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)
+    model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)([forward_inputs, backward_inputs])
     if optimizer == 'adam':
         optimizer = optimizers.Adam(learning_rate=learning_rate)
     elif optimizer == 'sgd':
@@ -26,7 +25,49 @@ def create_model(learning_rate=0.001, latent_dim=64, num_components=2, optimizer
         loss=custom_gmm_loss,
         metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric],
     )
+    return model """
+def create_model(learning_rate=0.001, latent_dim=64, num_components=2, optimizer='adam', **kwargs):
+    # Placeholder dimensions
+    sequence_length = forward_inputs.shape[1]
+    feature_dim = forward_inputs.shape[2]
+    
+    # Define the single flattened input
+    flat_input = tf.keras.layers.Input(shape=(sequence_length * feature_dim * 2,), name="flat_input")
+    
+    # Use fixed slicing for the input
+    def split_inputs(x):
+        forward = tf.reshape(x[:, :sequence_length * feature_dim], (-1, sequence_length, feature_dim))
+        backward = tf.reshape(x[:, sequence_length * feature_dim:], (-1, sequence_length, feature_dim))
+        return forward, backward
+    
+    # Split inputs explicitly using Lambda but define statically
+    forward_input, backward_input = tf.keras.layers.Lambda(split_inputs, name="split_inputs")(flat_input)
+    
+    # Call your model-building function
+    model_output = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)(
+        [forward_input, backward_input]
+    )
+    
+    model = tf.keras.models.Model(inputs=flat_input, outputs=model_output)
+    
+    # Optimizer handling
+    if optimizer == 'adam':
+        opt = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    elif optimizer == 'sgd':
+        opt = tf.keras.optimizers.SGD(learning_rate=learning_rate)
+    elif optimizer == 'rmsprop':
+        opt = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+    else:
+        raise ValueError(f"Invalid optimizer '{optimizer}'. Must be one of ['adam', 'sgd', 'rmsprop'].")
+    
+    model.compile(
+        optimizer=opt,
+        loss=custom_gmm_loss,
+        metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric],
+    )
     return model
+
+
 
 
 # Load and preprocess the data
@@ -89,19 +130,18 @@ print("Available parameters:", model.get_params().keys())
 
 # Define the grid of hyperparameters to search
 param_grid = {
-    'learning_rate': [0.001, 0.01, 0.1],
-    'latent_dim': [64, 128, 256],
-    'batch_size': [16, 32, 64],
-    'epochs': [50, 100, 200],
+    'learning_rate': [0.01, 0.1],
+    'latent_dim': [128, 256],
+    'batch_size': [64, 128],
+    'epochs': [1], # set back to 100 if it works
     'optimizer': ['adam', 'sgd', 'rmsprop']
 }
 
 # Perform grid search
-# to use cv=3 more samples in the training set are needed
+# to use cv=3 more samples in the training set are needed (also to use score r2)
 grid = GridSearchCV(estimator=model, param_grid=param_grid, cv=2, scoring={
     'neg_mean_squared_error': 'neg_mean_squared_error',
-    'neg_mean_absolute_error': 'neg_mean_absolute_error',
-    'r2': 'r2'}, refit='neg_mean_squared_error', verbose=1)
+    'neg_mean_absolute_error': 'neg_mean_absolute_error'}, refit='neg_mean_squared_error', verbose=1, n_jobs=-1 )
 grid_result = grid.fit(train_inputs_flat, train_y_true)
 
 # Print the best hyperparameters and their performance
