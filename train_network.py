@@ -141,7 +141,7 @@ plt.show()
 
 # Function to plot Gaussian distributions
 def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
-    x = np.linspace(-3, 3, 1000)
+    x = np.linspace(-0.5, 1.25, 1000)
     plt.figure(figsize=(12, 8))
 
     for i in range(num_components):

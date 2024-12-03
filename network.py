@@ -6,9 +6,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-#import torch
-#import torch.nn as nn
-#import torch.nn.functional as F
 from mpmath import mp
 import tensorflow as tf
 from tensorflow.keras import layers, models
@@ -33,18 +30,14 @@ def string_to_mpf(value):
 
 # Preprocess function
 # TODO: 
-# 1) is it better to use directly window slopes as file? 
-# 2) window size should be the optimal one found for the specific file
-# 3) i think phases are not necessary as output
+# 1) window size should be the optimal one found for the specific file - put it as one of the arguments
 # positions_velocities should be of size (n_timesteps, 18) 
-# should we distinguish between particles?
-def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, window_slopes_path=None, gaussian_fit_params_path=None):
+def preprocess_trajectory(file_path, delta_per_step_path=None, window_slopes_path=None, gaussian_fit_params_path=None):
     """
     Preprocess trajectory data for use in a neural network.
     
     Args:
         file_path (str): Path to the trajectory CSV file.
-        window_size (int): Number of timesteps to include in each slope calculation window.
         delta_per_step_path (str): Path to the precomputed delta per step data file.
         window_slopes_path (str): Path to the precomputed window slopes data file.
         gaussian_fit_params_path (str): Path to the precomputed Gaussian fit parameters file.
@@ -73,7 +66,6 @@ def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, w
 
     # Get unique timesteps
     timesteps = df['Timestep'].unique()
-    total_timesteps = len(timesteps)
 
     # Separate forward and backward trajectories
     forward_trajectory = df[df['Phase'].astype(int) == 1]
@@ -90,11 +82,10 @@ def preprocess_trajectory(file_path, window_size=40, delta_per_step_path=None, w
     else:
         raise ValueError("Paths for delta_per_step, window_slopes, and gaussian_fit_params must be provided.")
 
-    # Group forward and backward trajectories by particle
+    # Group trajectories by particle
     forward_trajectories = {particle: forward_trajectory[forward_trajectory['Particle Number'] == particle][pos_vel_cols].astype(float).to_numpy() for particle in particles}
     backward_trajectories = {particle: backward_trajectory[backward_trajectory['Particle Number'] == particle][pos_vel_cols].astype(float).to_numpy() for particle in particles}
 
-    # Convert processed arrays into NumPy arrays for neural network use
     timesteps = np.array(T_norm, dtype=float)
     deltas = np.array(np.log(delta_per_step), dtype=float)
 
@@ -118,7 +109,7 @@ def build_temporal_encoder(sequence_length, feature_dim, latent_dim):
     forward_input = layers.Input(shape=(sequence_length, feature_dim), name='forward_trajectory_input')
     backward_input = layers.Input(shape=(sequence_length, feature_dim), name='backward_trajectory_input')
 
-     # Split features into positions (first half) and velocities (second half)
+    # Split features into positions (first half) and velocities (second half)
     pos_dim = feature_dim // 2
     
     def split_pos_vel(x):
@@ -142,6 +133,7 @@ def build_temporal_encoder(sequence_length, feature_dim, latent_dim):
     backward_encoded = layers.LSTM(128, return_sequences=True, name='backward_lstm')(backward_features)
 
     # Self-attention to learn phase space relationships
+    # to focus on specific parts of the input sequence
     attention = layers.Attention()([forward_encoded, backward_encoded])
     
     # Combine features with learned attention
@@ -172,47 +164,7 @@ def build_temporal_encoder(sequence_length, feature_dim, latent_dim):
     )
     return model
 
-
-# dont know if it's needed
-def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, pooling_type="average"):
-    """
-    Builds a model to aggregate trajectory features into a compact representation.
-
-    Args:
-        sequence_length (int): Length of the input sequence (number of timesteps).
-        feature_dim (int): Dimensionality of input features (e.g., 6 for positions and velocities).
-        latent_dim (int): Dimension of the compact representation.
-        pooling_type (str): Type of pooling to use: 'average', 'max', or 'attention'.
-
-    Returns:
-        model (tf.keras.Model): A Keras model aggregating features into a compact representation.
-    """
-    inputs = layers.Input(shape=(sequence_length, feature_dim), name='trajectory_input')
-
-    # Temporal feature processing with LSTM
-    x = layers.LSTM(128, return_sequences=True, activation='tanh', name='lstm')(inputs)
-
-    # Apply pooling to aggregate features
-    if pooling_type == "average":
-        x = layers.GlobalAveragePooling1D(name="global_avg_pool")(x)
-    elif pooling_type == "max":
-        x = layers.GlobalMaxPooling1D(name="global_max_pool")(x)
-    elif pooling_type == "attention":
-        # Attention pooling layer
-        query = layers.Dense(128, activation='tanh', name="attention_query")(x)
-        attention_scores = layers.Dense(1, activation='softmax', name="attention_scores")(query)
-        x = tf.reduce_sum(attention_scores * x, axis=1)  # Weighted sum based on attention scores
-    else:
-        raise ValueError("Invalid pooling_type. Choose from 'average', 'max', or 'attention'.")
-
-    # Compact representation layer
-    compact_representation = layers.Dense(latent_dim, activation='linear', name="compact_representation")(x)
-
-    # Build the model
-    model = models.Model(inputs, compact_representation, name="trajectory_aggregator")
-    return model
-
-
+# qui toglierei num_components se le teniamo fisse
 def build_gmm_decoder(latent_dim, num_components):
     """
     Builds a neural network decoder to map latent representations to Gaussian Mixture Model (GMM) parameters.
@@ -285,7 +237,58 @@ def build_phase_space_model(sequence_length, feature_dim, latent_dim, num_compon
 
 
 
-""" class TrajectoryToGMM(nn.Module):
+""" 
+# dont know if it's needed
+def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, pooling_type="average"):
+
+    Builds a model to aggregate trajectory features into a compact representation.
+
+    Args:
+        sequence_length (int): Length of the input sequence (number of timesteps).
+        feature_dim (int): Dimensionality of input features (e.g., 6 for positions and velocities).
+        latent_dim (int): Dimension of the compact representation.
+        pooling_type (str): Type of pooling to use: 'average', 'max', or 'attention'.
+
+    Returns:
+        model (tf.keras.Model): A Keras model aggregating features into a compact representation.
+
+    inputs = layers.Input(shape=(sequence_length, feature_dim), name='trajectory_input')
+
+    # Temporal feature processing with LSTM
+    x = layers.LSTM(128, return_sequences=True, activation='tanh', name='lstm')(inputs)
+
+    # Apply pooling to aggregate features
+    if pooling_type == "average":
+        x = layers.GlobalAveragePooling1D(name="global_avg_pool")(x)
+    elif pooling_type == "max":
+        x = layers.GlobalMaxPooling1D(name="global_max_pool")(x)
+    elif pooling_type == "attention":
+        # Attention pooling layer
+        query = layers.Dense(128, activation='tanh', name="attention_query")(x)
+        attention_scores = layers.Dense(1, activation='softmax', name="attention_scores")(query)
+        x = tf.reduce_sum(attention_scores * x, axis=1)  # Weighted sum based on attention scores
+    else:
+        raise ValueError("Invalid pooling_type. Choose from 'average', 'max', or 'attention'.")
+
+    # Compact representation layer
+    compact_representation = layers.Dense(latent_dim, activation='linear', name="compact_representation")(x)
+
+    # Build the model
+    model = models.Model(inputs, compact_representation, name="trajectory_aggregator")
+    return model
+
+
+
+
+
+
+
+
+
+
+
+
+class TrajectoryToGMM(nn.Module):
     def __init__(self, input_dim=6, hidden_dim=128, num_layers=2):
         super(TrajectoryToGMM, self).__init__()
         self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True)

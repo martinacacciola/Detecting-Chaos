@@ -7,31 +7,35 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import norm
 from network import preprocess_trajectory, build_temporal_encoder, build_gmm_decoder, build_phase_space_model
 
+# TODO: inserire piu sample come input
+# come parametro al posto dei pesi usare l'altezza relativa
+
+# total loss function (sum of the three losses)
 def custom_gmm_loss(y_true, y_pred):
     """
     Custom GMM loss function for concatenated outputs.
 
     Args:
-        y_true (tensor): True values, concatenated [means, stds, weights].
+        y_true (tensor): True parameter values, concatenated [means, stds, weights].
         y_pred (tensor): Predicted values, concatenated [means, stds, weights].
 
     Returns:
-        Tensor: Combined loss value.
+        Tensor: Combined loss value = sum of mean_loss, std_loss, and weight_loss.
     """
-
 
     # Split y_true and y_pred into means, stds, and weights
     means_true, stds_true, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
     means_pred, stds_pred, weights_pred = tf.split(y_pred, num_or_size_splits=3, axis=1)
 
-    # Compute losses
+    # losses as MSE
     mean_loss = tf.reduce_mean(tf.square(means_true - means_pred))
     std_loss = tf.reduce_mean(tf.square(stds_true - stds_pred))
     weight_loss = tf.reduce_mean(losses.categorical_crossentropy(weights_true, weights_pred))
 
     return mean_loss + std_loss + weight_loss
 
-# Custom metrics
+# Loss functions for individual components
+# MSE btw true and predicted parameters
 def mean_loss_metric(y_true, y_pred):
     means_true, _, _ = tf.split(y_true, num_or_size_splits=3, axis=1)
     means_pred, _, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
@@ -42,6 +46,7 @@ def std_loss_metric(y_true, y_pred):
     _, stds_pred, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
     return tf.reduce_mean(tf.square(stds_true - stds_pred))
 
+# mean of categorical cross-entropy
 def weight_loss_metric(y_true, y_pred):
     _, _, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
     _, _, weights_pred = tf.split(y_pred, num_or_size_splits=3, axis=1)
@@ -56,36 +61,34 @@ forward_trajectories, backward_trajectories, timesteps, deltas, window_slopes, g
     gaussian_fit_params_path='./data/gmm_parameters_L0_00_i1775_e90_Lw392.txt'
 )
 
-# Inspect the shape of gaussian_fit_params
-#print("Shape of gaussian_fit_params:", gaussian_fit_params.shape)
-
-# Prepare the inputs and outputs
+## Inputs
+# Trajectories
 forward_inputs = np.array(list(forward_trajectories.values()))
 backward_inputs = np.array(list(backward_trajectories.values()))
 
-# Adjust based on the shape of gaussian_fit_params
-""" means_true = gaussian_fit_params[0, :]
-stds_true = gaussian_fit_params[1, :]
-weights_true = gaussian_fit_params[2, :] """
-# Adjust based on the shape of gaussian_fit_params
+
+# the first row of params is repeated across all rows of input array 
+# to match the shape
 means_true = np.tile(gaussian_fit_params[0, :], (forward_inputs.shape[0], 1))
 stds_true = np.tile(gaussian_fit_params[1, :], (forward_inputs.shape[0], 1))
 weights_true = np.tile(gaussian_fit_params[2, :], (forward_inputs.shape[0], 1))
-
+# True parameters
 y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
 
-# Split the data into training and validation sets
+# Split the data into training and validation sets (80% vs 20%)
 train_forward_inputs, val_forward_inputs, train_backward_inputs, val_backward_inputs, train_y_true, val_y_true = train_test_split(
-    forward_inputs, backward_inputs, y_true, test_size=0.2, random_state=42
-)
+    forward_inputs, backward_inputs, y_true, test_size=0.2, random_state=42)
 
-# Build the model
 sequence_length = forward_inputs.shape[1]
 feature_dim = forward_inputs.shape[2]
+# hyperparameters
 latent_dim = 128
+num_epochs = 100
+batch_size = 32
 num_components = 2 #means_true.shape[0]
 #learning_rate = 0.01
 
+# Build and compile the model
 model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_components)
 
 model.compile(
@@ -99,12 +102,13 @@ history = model.fit(
     [train_forward_inputs, train_backward_inputs],
     train_y_true,
     validation_data=([val_forward_inputs, val_backward_inputs], val_y_true),
-    epochs=100,
-    batch_size=32,
+    epochs=num_epochs,
+    batch_size=batch_size,
 )
 
 # Save history
 # this will be used to do do hyperparameter tuning in the grid search
+#filename = f'./saved_results/training_history_{num_epochs}epochs_{batch_size}batch.csv'
 #pd.DataFrame(history.history).to_csv('./saved_results/training_history.csv', index=False)
 
 # Plot the training and validation history
@@ -137,7 +141,7 @@ plt.xlabel('Epoch')
 plt.ylabel('Std MSE')
 plt.legend()
 
-# Plot weight CCE
+# Plot weight CCE (categorical cross entropy)
 plt.subplot(2, 2, 4)
 plt.plot(history.history['weight_loss_metric'], label='Training Weight CCE')
 plt.plot(history.history['val_weight_loss_metric'], label='Validation Weight CCE')
@@ -153,7 +157,7 @@ plt.show()
 
 # Function to plot Gaussian distributions
 def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
-    x = np.linspace(-10, 10, 1000)  # Adjust the range as needed
+    x = np.linspace(-10, 10, 1000)  
 
     # PDF computed for each component separately
     pdf_individual_true = [weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
@@ -171,7 +175,7 @@ def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, w
     plt.title('True vs Predicted Gaussian Distributions')
     plt.legend()
     plt.grid(True)
-    #plt.savefig('./figures/gaussian_comparison_val.png')
+    plt.savefig('./figures/gaussian_comparison_val.png')
     plt.show()
 
 
@@ -198,8 +202,7 @@ print("stds_pred:", stds_pred)
 print("weights_true:", weights_true)
 print("weights_pred:", weights_pred)
 
-
-# Reshape the predicted values if necessary
+# Reshape the predicted values 
 means_pred = means_pred.reshape(-1, num_components)
 stds_pred = stds_pred.reshape(-1, num_components)
 weights_pred = weights_pred.reshape(-1, num_components)
