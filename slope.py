@@ -8,7 +8,7 @@ from scipy.stats import norm
 from sklearn.mixture import GaussianMixture
 
 
-df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv', dtype=str) 
+df = pd.read_csv('./Brutus data/plummer_triples_L0_00_i2025_e90_Lw392.csv', dtype=str) 
 
 def count_decimals(value):
     if '.' in value:
@@ -41,7 +41,7 @@ midpoint = total_timesteps // 2  # Midpoint corresponds to t=T=lifetime
 timesteps = df['Timestep'].unique()
 
 # take delta per step from txt file
-delta_per_step = np.loadtxt('./data/delta_per_step_L0_00_i1775_e90_Lw392.txt')
+delta_per_step = np.loadtxt('./data/delta_per_step_L0_00_i2025_e90_Lw392.txt')
  
 # Crossing time 
 T_c = mp.mpf(2) * mp.sqrt(2)
@@ -84,6 +84,7 @@ plt.show()
 # Window slope calculation
 # Define window size in terms of timesteps (number of points to include in each fit)
 window_size = 40
+# here we should insert the optimal window size
 
 window_slopes = []
 window_midpoints = []
@@ -106,6 +107,9 @@ for start_idx in range(0, len(T_norm) - window_size + 1):
 
     # midpoint of the current time window
     window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
+
+# save window slopes in a file
+np.savetxt('./data/window_slopes_L0_00_i2025_e90_Lw392.txt', window_slopes)
 
 plt.figure(figsize=(10, 6))
 plt.plot(window_midpoints, window_slopes, color='b', alpha=0.7)
@@ -164,6 +168,16 @@ pdf = np.exp(logprob) # convert log probabilities to probabilities
 means = gmm.means_.flatten()
 covariances = gmm.covariances_.flatten()
 weights = gmm.weights_.flatten()
+
+# relative height of the two components
+peak1_heights = weights[0] / np.sqrt(2 * np.pi * covariances[0])
+peak2_heights = weights[1] / np.sqrt(2 * np.pi * covariances[1])
+heights =  np.array([peak1_heights, peak2_heights]) #peak1_heights - peak2_heights
+
+gmm_params = np.vstack([means, covariances, weights, heights])
+
+# save parameters of the fit in a file
+np.savetxt('./data/gmm_parameters_L0_00_i2025_e90_Lw392.txt', gmm_params)
 
 # pdf computed for each component separately
 pdf_individual = [weights[i] * norm.pdf(x, means[i], np.sqrt(covariances[i])) for i in range(gmm.n_components)]
@@ -370,8 +384,8 @@ evaluate_gmm_fit_mean(window_slopes, window_sizes)
 # 4) compute mean and std of the two components for different window sizes
 # the windows goes from 0.5 to 100 with a step of 0.5
 
-# initialize lists to store the means and stds of the two components
-means1, means2, stds1, stds2, window_sizes, peak1_heights, peak2_heights = [], [], [], [], [], [], []
+# initialize lists to store the means, stds and rel height of the two components
+means1, means2, stds1, stds2, window_sizes, heights = [], [], [], [], [], []
 
 # Iterate over different window sizes, starting from 0.5 and incrementing by 0.5
 for window_size in np.arange(0.5, 100, 0.5):
@@ -409,13 +423,13 @@ for window_size in np.arange(0.5, 100, 0.5):
         weights = gmm.weights_.flatten()
         peak1_height = weights[0] / np.sqrt(2 * np.pi * covariances[0])
         peak2_height = weights[1] / np.sqrt(2 * np.pi * covariances[1])
+        height = peak1_height - peak2_height
 
         means1.append(means[0])
         means2.append(means[1])
         stds1.append(np.sqrt(covariances[0]))
         stds2.append(np.sqrt(covariances[1]))
-        peak1_heights.append(peak1_height)
-        peak2_heights.append(peak2_height)
+        heights.append(height)
         window_sizes.append(window_size)
 
 
