@@ -218,16 +218,35 @@ for i, history in enumerate(history_list):
     plt.savefig(f'./figures/training_validation_history_file_{i+1}.png')
     plt.show()
 
-# plot evolution of the loss function on the test set
 
 
+# why is not plotting the gaussian around zero even if the values exists?
 # Function to plot Gaussian distributions
 def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
-    x = np.linspace(-10, 10, 1000)  
+    #x = np.linspace(-10, 10, 1000)  
+    # Calculate the range of the trajectory data
+    min_val = np.min(forward_inputs)
+    max_val = np.max(forward_inputs)
+    range_val = max_val - min_val
+
+    # Set the range of x based on the trajectory data
+    x = np.linspace(min_val - 0.1 * range_val, max_val + 0.1 * range_val, 1000)
+
+    # Calculate the scaling factor for each true Gaussian component based on the true height
+    #scaling_factors_true = [heights_true[i] / (weights_true[i] / (np.sqrt(2 * np.pi * stds_true[i]**2))) for i in range(num_components)]
+
+    # PDF computed for each component separately
+    #pdf_individual_true = [scaling_factors_true[i] * weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
 
     # PDF computed for each component separately
     pdf_individual_true = [weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
     pdf_individual_pred = [weights_pred[i] * norm.pdf(x, means_pred[i], stds_pred[i]) for i in range(num_components)]
+
+    # true vs predicted values for each component
+    for i in range(num_components):
+        print(f'Component {i+1}')
+        print(f'True: mean={means_true[i]:.3f}, std={stds_true[i]:.3f}, weight={weights_true[i]:.3f}')
+        print(f'Pred: mean={means_pred[i]:.3f}, std={stds_pred[i]:.3f}, weight={weights_pred[i]:.3f}')
 
     plt.figure(figsize=(8, 6))
     for i, pdf_i in enumerate(pdf_individual_true):
@@ -241,32 +260,10 @@ def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, w
     plt.title('True vs Predicted Gaussian Distributions')
     plt.legend()
     plt.grid(True)
-    plt.savefig('./figures/gaussian_comparison_test.png')
+    plt.savefig('./figures/gaussian_comparison_val.png')
     plt.show()
 
 
-# Function to plot Gaussian distributions
-def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
-    x = np.linspace(-10, 10, 1000)  
-
-    # PDF computed for each component separately
-    pdf_individual_true = [weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
-    pdf_individual_pred = [weights_pred[i] * norm.pdf(x, means_pred[i], stds_pred[i]) for i in range(num_components)]
-
-    plt.figure(figsize=(8, 6))
-    for i, pdf_i in enumerate(pdf_individual_true):
-        plt.plot(x, pdf_i, alpha=0.7, label=f'True Gaussian {i+1}: mean={means_true[i]:.3f}, std={stds_true[i]:.3f}')
-        plt.axvline(means_true[i], color='k', linestyle='dotted')
-    for i, pdf_i in enumerate(pdf_individual_pred):
-        plt.plot(x, pdf_i, alpha=0.7, linestyle='--', label=f'Pred Gaussian {i+1}: mean={means_pred[i]:.3f}, std={stds_pred[i]:.3f}')
-        plt.axvline(means_pred[i], color='r', linestyle='dotted')
-    plt.xlabel('Value')
-    plt.ylabel('Density')
-    plt.title('True vs Predicted Gaussian Distributions')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig('./figures/gaussian_comparison_test.png')
-    plt.show()
 
 # Get the model predictions for the test set
 predictions = model.predict([forward_inputs, backward_inputs])
@@ -276,22 +273,12 @@ means_pred = predictions[:, :num_components]
 stds_pred = predictions[:, num_components:2*num_components]
 weights_pred = predictions[:, 2*num_components:]
 
-means_pred = means_pred.reshape(-1, num_components)
-stds_pred = stds_pred.reshape(-1, num_components)
-weights_pred = weights_pred.reshape(-1, num_components)
 
 # Extract means, stds, and weights from true values
 means_true = y_true[:, :num_components]
 stds_true = y_true[:, num_components:2*num_components]
 weights_true = y_true[:, 2*num_components:]
 
-# Print predicted vs true values
-print("means_true:", means_true)
-print("means_pred:", means_pred)
-print("stds_true:", stds_true)
-print("stds_pred:", stds_pred)
-print("weights_true:", weights_true)
-print("weights_pred:", weights_pred)
 
 # Plot the Gaussians for the test set
 plot_gaussians(means_true[0], stds_true[0], weights_true[0], means_pred[0], stds_pred[0], weights_pred[0], num_components)
