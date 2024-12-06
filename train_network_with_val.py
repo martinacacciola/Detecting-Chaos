@@ -26,34 +26,40 @@ def custom_gmm_loss(y_true, y_pred):
     """
 
     # Split y_true and y_pred into means, stds, and weights
-    means_true, stds_true, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
-    means_pred, stds_pred, weights_pred = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    means_true, stds_true, weights_true, heights_true = tf.split(y_true, num_or_size_splits=4, axis=1)
+    means_pred, stds_pred, weights_pred, heights_pred = tf.split(y_pred, num_or_size_splits=4, axis=1)
 
     # losses as MSE
     mean_loss = tf.reduce_mean(tf.square(means_true - means_pred))
     std_loss = tf.reduce_mean(tf.square(stds_true - stds_pred))
     #weight_loss = tf.reduce_mean(losses.categorical_crossentropy(weights_true, weights_pred))
     weight_loss = tf.reduce_mean(tf.square(weights_true - weights_pred))
+    height_loss = tf.reduce_mean(tf.square(heights_true - heights_pred)) 
 
-    return mean_loss + std_loss + weight_loss
+    return mean_loss + std_loss + weight_loss + height_loss
 
 # Loss functions for individual components
 # MSE btw true and predicted parameters
 def mean_loss_metric(y_true, y_pred):
-    means_true, _, _ = tf.split(y_true, num_or_size_splits=3, axis=1)
-    means_pred, _, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    means_true, _, _, _ = tf.split(y_true, num_or_size_splits=4, axis=1)
+    means_pred, _, _, _ = tf.split(y_pred, num_or_size_splits=4, axis=1)
     return tf.reduce_mean(tf.square(means_true - means_pred))
 
 def std_loss_metric(y_true, y_pred):
-    _, stds_true, _ = tf.split(y_true, num_or_size_splits=3, axis=1)
-    _, stds_pred, _ = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    _, stds_true, _, _= tf.split(y_true, num_or_size_splits=4, axis=1)
+    _, stds_pred, _ , _= tf.split(y_pred, num_or_size_splits=4, axis=1)
     return tf.reduce_mean(tf.square(stds_true - stds_pred))
 
 # mean of categorical cross-entropy
 def weight_loss_metric(y_true, y_pred):
-    _, _, weights_true = tf.split(y_true, num_or_size_splits=3, axis=1)
-    _, _, weights_pred = tf.split(y_pred, num_or_size_splits=3, axis=1)
+    _, _, weights_true, _ = tf.split(y_true, num_or_size_splits=4, axis=1)
+    _, _, weights_pred, _ = tf.split(y_pred, num_or_size_splits=4, axis=1)
     return tf.reduce_mean(losses.categorical_crossentropy(weights_true, weights_pred))
+
+def height_loss_metric(y_true, y_pred):
+    _, _, _, heights_true = tf.split(y_true, num_or_size_splits=4, axis=1)
+    _, _, _, heights_pred = tf.split(y_pred, num_or_size_splits=4, axis=1)
+    return tf.reduce_mean(tf.square(heights_true - heights_pred))
 
 
 def process_file_pair(trajectory_file, gmm_params_file):
@@ -66,12 +72,14 @@ def process_file_pair(trajectory_file, gmm_params_file):
     # Convert trajectories to NumPy arrays
     forward_inputs = np.array(list(forward_trajectories.values()))
     backward_inputs = np.array(list(backward_trajectories.values()))
+
     
-    # Tile GMM parameters to match trajectory data shape
+    # Tile GMM parameters to match trajectory data shape (each row in the file is a parameter)
     means_true = np.tile(gaussian_fit_params[0, :], (forward_inputs.shape[0], 1))
     stds_true = np.tile(gaussian_fit_params[1, :], (forward_inputs.shape[0], 1))
     weights_true = np.tile(gaussian_fit_params[2, :], (forward_inputs.shape[0], 1))
-    y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
+    heights_true = np.tile(gaussian_fit_params[3, :], (forward_inputs.shape[0], 1))  
+    y_true = np.concatenate([means_true, stds_true, weights_true, heights_true], axis=1)
     
     return forward_inputs, backward_inputs, y_true
 
@@ -104,8 +112,9 @@ model = build_phase_space_model(sequence_length, feature_dim, latent_dim, num_co
 model.compile(
     optimizer=optimizers.Adam(),
     loss=custom_gmm_loss,
-    metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric],
+    metrics=[mean_loss_metric, std_loss_metric, weight_loss_metric, height_loss_metric],
 )
+
 
 history_list = []
 # Train and validate the model over different files (two, based on the ones available)
@@ -125,7 +134,8 @@ for trajectory_file, gmm_params_file in zip(trajectory_files_train, gmm_params_f
     means_true = np.tile(gaussian_fit_params[0, :], (forward_inputs.shape[0], 1))
     stds_true = np.tile(gaussian_fit_params[1, :], (forward_inputs.shape[0], 1))
     weights_true = np.tile(gaussian_fit_params[2, :], (forward_inputs.shape[0], 1))
-    y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
+    heights_true = np.tile(gaussian_fit_params[3, :], (forward_inputs.shape[0], 1))
+    y_true = np.concatenate([means_true, stds_true, weights_true, heights_true], axis=1)
 
     # Split the data into training and validation sets (80% vs 20%)
     train_forward_inputs, val_forward_inputs, train_backward_inputs, val_backward_inputs, train_y_true, val_y_true = train_test_split(
@@ -149,25 +159,28 @@ forward_trajectories_test, backward_trajectories_test, gaussian_fit_params_test 
     gaussian_fit_params_path=test_gmm_params_file
 )
 
+forward_inputs_test, backward_inputs_test, y_true_test = process_file_pair(trajectory_files_train[0], gmm_params_files_train[0])
 # Test inputs
-forward_inputs_test = np.array(list(forward_trajectories_test.values()))
-backward_inputs_test = np.array(list(backward_trajectories_test.values()))
+#forward_inputs_test = np.array(list(forward_trajectories_test.values()))
+#backward_inputs_test = np.array(list(backward_trajectories_test.values()))
 
 # True parameters
 means_true = np.tile(gaussian_fit_params_test[0, :], (forward_inputs_test.shape[0], 1))
 stds_true = np.tile(gaussian_fit_params_test[1, :], (forward_inputs_test.shape[0], 1))
 weights_true = np.tile(gaussian_fit_params_test[2, :], (forward_inputs_test.shape[0], 1))
-y_true = np.concatenate([means_true, stds_true, weights_true], axis=1)
+heights_true = np.tile(gaussian_fit_params_test[3, :], (forward_inputs_test.shape[0], 1))
+y_true = np.concatenate([means_true, stds_true, weights_true, heights_true], axis=1)
+print('y_true test shape:',y_true.shape)
 
 
 # Evaluate the model on the test dataset
-test_loss, mean_loss, std_loss, weight_loss = model.evaluate(
+test_loss, mean_loss, std_loss, weight_loss, height_loss = model.evaluate(
     [forward_inputs_test, backward_inputs_test],
     y_true,
     batch_size=batch_size
 )
 
-print(f'Test Loss: {test_loss}, Mean Loss: {mean_loss}, Std Loss: {std_loss}, Weight Loss: {weight_loss}')
+print(f'Test Loss: {test_loss}, Mean Loss: {mean_loss}, Std Loss: {std_loss}, Weight Loss: {weight_loss}, Height Loss: {height_loss}')
 
 # Save history
 # this will be used to do do hyperparameter tuning in the grid search
@@ -222,7 +235,7 @@ for i, history in enumerate(history_list):
 
 # why is not plotting the gaussian around zero even if the values exists?
 # Function to plot Gaussian distributions
-def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, weights_pred, num_components):
+def plot_gaussians(means_true, stds_true, weights_true, heights_true, means_pred, stds_pred, weights_pred, heights_pred, num_components):
     #x = np.linspace(-10, 10, 1000)  
     # Calculate the range of the trajectory data
     min_val = np.min(forward_inputs)
@@ -239,14 +252,14 @@ def plot_gaussians(means_true, stds_true, weights_true, means_pred, stds_pred, w
     #pdf_individual_true = [scaling_factors_true[i] * weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
 
     # PDF computed for each component separately
-    pdf_individual_true = [weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
-    pdf_individual_pred = [weights_pred[i] * norm.pdf(x, means_pred[i], stds_pred[i]) for i in range(num_components)]
+    pdf_individual_true = [heights_true[i] * weights_true[i] * norm.pdf(x, means_true[i], stds_true[i]) for i in range(num_components)]
+    pdf_individual_pred = [heights_pred[i] * weights_pred[i] * norm.pdf(x, means_pred[i], stds_pred[i]) for i in range(num_components)]
 
     # true vs predicted values for each component
     for i in range(num_components):
         print(f'Component {i+1}')
-        print(f'True: mean={means_true[i]:.3f}, std={stds_true[i]:.3f}, weight={weights_true[i]:.3f}')
-        print(f'Pred: mean={means_pred[i]:.3f}, std={stds_pred[i]:.3f}, weight={weights_pred[i]:.3f}')
+        print(f'True: mean={means_true[i]:.3f}, std={stds_true[i]:.3f}, weight={weights_true[i]:.3f}, height={heights_true[i]:.3f}')
+        print(f'Pred: mean={means_pred[i]:.3f}, std={stds_pred[i]:.3f}, weight={weights_pred[i]:.3f}, height={heights_pred[i]:.3f}')
 
     plt.figure(figsize=(8, 6))
     for i, pdf_i in enumerate(pdf_individual_true):
@@ -271,14 +284,17 @@ predictions = model.predict([forward_inputs, backward_inputs])
 # Split the predictions into means, stds, and weights
 means_pred = predictions[:, :num_components]
 stds_pred = predictions[:, num_components:2*num_components]
-weights_pred = predictions[:, 2*num_components:]
+weights_pred = predictions[:, 2*num_components:3*num_components]
+heights_pred = predictions[:, 3*num_components:]
 
 
 # Extract means, stds, and weights from true values
 means_true = y_true[:, :num_components]
 stds_true = y_true[:, num_components:2*num_components]
-weights_true = y_true[:, 2*num_components:]
+weights_true = y_true[:, 2*num_components:3*num_components]
+heights_true = y_true[:, 3*num_components:]
 
 
 # Plot the Gaussians for the test set
-plot_gaussians(means_true[0], stds_true[0], weights_true[0], means_pred[0], stds_pred[0], weights_pred[0], num_components)
+plot_gaussians(means_true[0], stds_true[0], weights_true[0], heights_true[0],
+               means_pred[0], stds_pred[0], weights_pred[0], heights_pred[0], num_components)

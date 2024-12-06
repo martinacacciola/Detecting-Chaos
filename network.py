@@ -174,8 +174,11 @@ def build_gmm_decoder(latent_dim, num_components):
     # Weights (softmax activation to ensure they sum to 1)
     weights = layers.Dense(num_components, activation='softmax', name='gmm_weights')(x)
 
+    # Heights (softplus activation for positivity)
+    heights = layers.Dense(num_components, activation='softplus', name='gmm_heights')(x)
+
     # Build the model
-    model = models.Model(inputs, [means, stds, weights], name="gmm_decoder")
+    model = models.Model(inputs, [means, stds, weights, heights], name="gmm_decoder")
     return model
 
 # to combine encoder and decoder 
@@ -206,10 +209,10 @@ def build_phase_space_model(sequence_length, feature_dim, latent_dim, num_compon
     latent_representation = encoder([forward_input, backward_input])
 
     # Pass latent representation through decoder
-    means, stds, weights = decoder(latent_representation)
+    means, stds, weights, heights = decoder(latent_representation)
 
     # Concatenate outputs into a single tensor
-    outputs = layers.Concatenate(name="gmm_outputs")([means, stds, weights])
+    outputs = layers.Concatenate(name="gmm_outputs")([means, stds, weights, heights])
 
     # Build the full model
     model = models.Model(inputs=[forward_input, backward_input], outputs=outputs, name="phase_space_model")
