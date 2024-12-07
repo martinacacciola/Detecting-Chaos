@@ -9,8 +9,9 @@ from sklearn.model_selection import train_test_split
 from scipy.stats import norm
 from network import preprocess_trajectory, build_phase_space_model
 
-# TODO: inserire come parametro l'altezza (già presente in gmm_params)
-# cerca una metrica più precisa
+# TODO: 
+# cerca una metrica totale più precisa
+# in plot_gaussians, capire come definire range di x correttamente
 
 # total loss function (sum of the three losses)
 def custom_gmm_loss(y_true, y_pred):

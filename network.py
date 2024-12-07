@@ -222,7 +222,70 @@ def build_phase_space_model(sequence_length, feature_dim, latent_dim, num_compon
 
 
 
+
+
+
+
 """ 
+# giving the trajectories, slopes, psd as ground truth
+def build_phase_space_model_with_trajectory_prediction(sequence_length, feature_dim, latent_dim, num_components, prediction_steps):
+    
+    Builds a model to process trajectories, predict their evolution, and output GMM parameters.
+    
+    Args:
+        sequence_length (int): Length of the input sequence (number of timesteps).
+        feature_dim (int): Dimensionality of input features (e.g., 6 for positions and velocities).
+        latent_dim (int): Dimension of the latent representation.
+        num_components (int): Number of Gaussian components in the mixture.
+        prediction_steps (int): Number of timesteps to predict into the future.
+    
+    Returns:
+        model (tf.keras.Model): A Keras model to process trajectories and output GMM parameters.
+    
+    # Encoder for trajectory dynamics
+    encoder = build_temporal_encoder(sequence_length, feature_dim, latent_dim)
+
+    # Decoder for Gaussian Mixture Model parameters
+    gmm_decoder = build_gmm_decoder(latent_dim, num_components)
+
+    # Inputs for forward and backward trajectories
+    forward_input = layers.Input(shape=(sequence_length, feature_dim), name='forward_trajectory_input')
+    backward_input = layers.Input(shape=(sequence_length, feature_dim), name='backward_trajectory_input')
+
+    # Pass through encoder
+    latent_representation = encoder([forward_input, backward_input])
+
+    # GMM outputs (Lyapunov estimator components)
+    means, stds, weights, heights = gmm_decoder(latent_representation)
+
+    # Trajectory prediction head
+    future_trajectory = layers.Dense(prediction_steps * feature_dim, activation='linear', name='trajectory_prediction')(latent_representation)
+    future_trajectory = layers.Reshape((prediction_steps, feature_dim), name='reshaped_trajectory')(future_trajectory)
+
+    # Phase space distance computation
+    phase_space_distance = layers.Lambda(
+        lambda x: tf.sqrt(tf.reduce_sum(tf.square(x[0] - x[1]), axis=-1)),
+        name='phase_space_distance'
+    )([forward_input, backward_input])
+
+    # Slope distribution analysis head
+    slope_features = layers.Dense(64, activation='relu', name='slope_dense_1')(phase_space_distance)
+    slope_distribution = layers.Dense(32, activation='relu', name='slope_dense_2')(slope_features)
+    slope_distribution = layers.Dense(num_components, activation='softmax', name='slope_distribution')(slope_distribution)
+
+    # Combine all outputs
+    outputs = {
+        "gmm_outputs": layers.Concatenate(name="gmm_outputs")([means, stds, weights, heights]),
+        "trajectory_prediction": future_trajectory,
+        "phase_space_distance": phase_space_distance,
+        "slope_distribution": slope_distribution,
+    }
+
+    # Build the full model
+    model = models.Model(inputs=[forward_input, backward_input], outputs=outputs, name="phase_space_model_with_prediction")
+    return model
+
+    
 # dont know if it's needed
 def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, pooling_type="average"):
 
@@ -263,83 +326,8 @@ def build_trajectory_aggregator(sequence_length, feature_dim, latent_dim, poolin
     return model
 
 
-
-
-
-
-
-
-
-
-
-
-class TrajectoryToGMM(nn.Module):
-    def __init__(self, input_dim=6, hidden_dim=128, num_layers=2):
-        super(TrajectoryToGMM, self).__init__()
-        self.lstm = nn.LSTM(input_dim, hidden_dim, num_layers, batch_first=True, bidirectional=True)
-        self.fc_means = nn.Linear(hidden_dim * 2, 2)  # 2 means
-        self.fc_stds = nn.Linear(hidden_dim * 2, 2)   # 2 std deviations
-        self.fc_weights = nn.Linear(hidden_dim * 2, 2)  # 2 weights
-
-    def forward(self, x):
-        # LSTM for temporal feature extraction
-        _, (hidden, _) = self.lstm(x)  # hidden: (num_layers * 2, batch_size, hidden_dim)
-        hidden = torch.cat((hidden[-2], hidden[-1]), dim=1)  # Concatenate forward and backward hidden states
-        
-        # Decode to GMM parameters
-        means = self.fc_means(hidden)
-        stds = F.softplus(self.fc_stds(hidden))  # Ensure positivity
-        weights = F.softmax(self.fc_weights(hidden), dim=1)  # Ensure sum to 1
-        
-        return weights, means, stds
  """
 
-
-"""  
-this in preprocess_trajectory if we want to compute ground truth in this file
-
-   else:
-        # Load delta_per_step data
-        delta_per_step = np.loadtxt(delta_file_path)
-        
-        # Flip delta_per_step for consistent slope calculation
-        delta_flip = np.flip(delta_per_step)
-
-        # Logarithm of delta
-        delta_log = np.log10(np.array(delta_flip, dtype=float))
-
-        # Compute midpoints for T_norm intervals
-        T_norm_midpoints = [(T_norm[i] + T_norm[i + 1]) / 2 for i in range(len(T_norm) - 1)]
-
-        # Compute window slopes for ground truth
-        window_slopes = []
-        window_midpoints = []
-
-        for start_idx in range(0, len(delta_flip) - window_size + 1):
-            end_idx = start_idx + window_size
-
-            # Select data within the window
-            delta_window = delta_flip[start_idx:end_idx]
-            T_norm_window = T_norm[start_idx:end_idx]
-
-            delta_log_window = np.log10(np.array(delta_window, dtype=float))
-            
-            # Compute slope over the window
-            # these values represent the ground truth
-            slope = (delta_log_window[-1] - delta_log_window[0]) / (T_norm_window[-1] - T_norm_window[0])
-            window_slopes.append(float(slope))
-
-            # Record the midpoint of the current time window
-            window_midpoints.append((T_norm_window[0] + T_norm_window[-1]) / 2)
-
-        # Convert window slopes to NumPy array
-        window_slopes = np.array(window_slopes, dtype=float)
-
-    # Convert processed arrays into NumPy arrays for neural network use
-    positions_velocities = df[pos_vel_cols].astype(float).to_numpy()
-    phases = df['Phase'].astype(int).to_numpy()
-    timesteps = np.array(T_norm, dtype=float)
-    deltas = np.array(delta_log, dtype=float) """
 
 
 
