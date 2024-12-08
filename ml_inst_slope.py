@@ -4,7 +4,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.layers import Dense, Input, Dropout
+import seaborn as sns
 
 # we are only using the forward trajectories, understand if it's ok
 # bc the info about the psd is in their relationship
@@ -54,7 +55,10 @@ def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
 # Define the MLP model
 mlp_model = Sequential()
 mlp_model.add(Input(shape=(18,)))  # 18 features (3 positions + 3 velocities) * 3 particles
-mlp_model.add(Dense(64, activation='relu'))
+mlp_model.add(Dense(128, activation='relu'))
+mlp_model.add(Dropout(0.2))
+mlp_model.add(Dense(128, activation='relu'))
+mlp_model.add(Dropout(0.2))
 mlp_model.add(Dense(64, activation='relu'))
 mlp_model.add(Dense(1, activation='linear'))
 
@@ -94,7 +98,7 @@ for i, (traj_path, slope_path) in enumerate(zip(train_trajectory_files, train_sl
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Train the model
-    history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=100, validation_data=(X_val, y_val))
+    history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=1000, validation_data=(X_val, y_val))
     history_list.append(history)
 
     # Plot training & validation loss values for each file
@@ -135,6 +139,29 @@ plt.grid(True)
 plt.tight_layout()
 plt.savefig('./figures/true_vs_predicted.png')
 plt.show()
+
+# capire come fare meglio e che sia significativo
+""" # Define input feature names
+input_feature_names = [
+    'x_pos_1', 'y_pos_1', 'z_pos_1', 'x_vel_1', 'y_vel_1', 'z_vel_1',
+    'x_pos_2', 'y_pos_2', 'z_pos_2', 'x_vel_2', 'y_vel_2', 'z_vel_2',
+    'x_pos_3', 'y_pos_3', 'z_pos_3', 'x_vel_3', 'y_vel_3', 'z_vel_3'
+]
+
+# Create a DataFrame with input features and output
+data = pd.DataFrame(X_test, columns=input_feature_names)
+data['slope'] = y_test
+
+# Calculate the correlation matrix
+correlation_matrix = data.corr()
+
+# Plot the correlation matrix
+plt.figure(figsize=(12, 8))
+sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f')
+plt.title('Correlation Matrix of Input Features and Output (Slope)')
+plt.tight_layout()
+plt.savefig('./figures/input_output_correlation_matrix.png')
+plt.show() """
 
 # Summary plot for average loss across all files
 train_losses = np.array([history.history['loss'] for history in history_list])
