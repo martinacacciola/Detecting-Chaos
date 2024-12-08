@@ -4,7 +4,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
+from tensorflow.keras.layers import Dense, Input
 
 # Load the dataset
 traj_path = './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv'
@@ -19,74 +19,36 @@ pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Veloc
 forward_trajectory = traj_df[traj_df['Phase'].astype(int) == 1]
 backward_trajectory = traj_df[traj_df['Phase'].astype(int) == -1]
 
+# Identify unique particles
 particles = forward_trajectory['Particle Number'].unique()
 
-# Group positions and velocities by particle for the forward trajectory
-# Assuming timesteps_forward and timesteps_backward are defined and contain the timesteps of interest
-timesteps_forward = forward_trajectory['Timestep'].unique()
-timesteps_backward = backward_trajectory['Timestep'].unique()
+# Initialize X with 18 features for all particles combined
+X = []
 
-# Initialize dictionaries to store positions and velocities for each particle
-forward_positions = {}
-forward_velocities = {}
-backward_positions = {}
-backward_velocities = {}
-
-for p in particles:
-    forward_p = forward_trajectory[forward_trajectory['Particle Number'] == p]
-    backward_p = backward_trajectory[backward_trajectory['Particle Number'] == p]
+for t in forward_trajectory['Timestep'].unique()[:-1]:  # Exclude the last timestep since y is one less
+    timestep_data = []
+    for p in particles:
+        forward_state = forward_trajectory[(forward_trajectory['Particle Number'] == p) & (forward_trajectory['Timestep'] == t)]
+        
+        # Combine position and velocity into a single array
+        pos_vel = forward_state[pos_vel_cols].values[0]
+        timestep_data.extend(pos_vel)  # Add to timestep's data
     
-    # Initialize lists to store positions and velocities for all timesteps
-    forward_positions[p] = []
-    forward_velocities[p] = []
-    backward_positions[p] = []
-    backward_velocities[p] = []
-    
-    for t in timesteps_forward:
-        forward_state = forward_p[forward_p['Timestep'] == t]
-        if not forward_state.empty:
-            forward_positions[p].append(forward_state[['X Position', 'Y Position', 'Z Position']].values[0])
-            forward_velocities[p].append(forward_state[['X Velocity', 'Y Velocity', 'Z Velocity']].values[0])
-    
-    for t in timesteps_backward:
-        backward_state = backward_p[backward_p['Timestep'] == t]
-        if not backward_state.empty:
-            backward_positions[p].append(backward_state[['X Position', 'Y Position', 'Z Position']].values[0])
-            backward_velocities[p].append(backward_state[['X Velocity', 'Y Velocity', 'Z Velocity']].values[0])
+    X.append(timestep_data)
 
-# Convert lists to numpy arrays
-for p in particles:
-    forward_positions[p] = np.array(forward_positions[p])
-    forward_velocities[p] = np.array(forward_velocities[p])
-    backward_positions[p] = np.array(backward_positions[p])
-    backward_velocities[p] = np.array(backward_velocities[p])
+# Convert to numpy array
+X = np.array(X)
 
-# Example: Access positions and velocities for a specific particle
-selected_particle = particles[0]  # Example: select the first particle
-positions_selected = forward_positions[selected_particle]
-velocities_selected = forward_velocities[selected_particle]
-
-# Combine positions and velocities into a single array for the selected particle
-X = np.hstack((positions_selected, velocities_selected))
-
-# Calculate the instantaneous slope (e.g., using the magnitude of the velocity vector)
-instantaneous_slope = np.linalg.norm(velocities_selected, axis=1)
-
-# Set y as the instantaneous slope
-y = instantaneous_slope
-
-# Print shapes to verify
-print('X shape:', X.shape)
-print('y shape:', y.shape)
-
-# X_train contains 18 features and y_train contains the instantaneous slope of phase space distance
+# Use the instantaneous slope as y
+instantaneous_slope = slope_df.values
 
 # Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, instantaneous_slope, test_size=0.2, random_state=42)
 
 # Define the MLP model
 mlp_model = Sequential()
-mlp_model.add(Dense(64, input_dim=X_train.shape[1], activation='relu'))
+mlp_model.add(Input(shape=(X_train.shape[1],)))
+mlp_model.add(Dense(64, activation='relu'))
 mlp_model.add(Dense(64, activation='relu'))
 mlp_model.add(Dense(1, activation='linear'))
 
@@ -125,4 +87,3 @@ plt.grid(True)
 
 plt.tight_layout()
 plt.show()
-
