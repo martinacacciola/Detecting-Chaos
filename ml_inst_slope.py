@@ -6,18 +6,50 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
 
-# List of trajectory and slope file paths
-trajectory_files = [
-    './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv',
-    './Brutus data/plummer_triples_L0_00_i1966_e90_Lw392.csv'
-    # Add more file paths as needed
-]
+# we are only using the forward trajectories, understand if it's ok
+# bc the info about the psd is in their relationship
 
-slope_files = [
-    './data/inst_slopes_L0_00_i1775_e90_Lw392.txt',
-    './data/inst_slopes_L0_00_i1966_e90_Lw392.txt'
-    # Add more file paths as needed
-]
+# the network is learning from one coordinate at a time
+
+
+def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
+    # Load the dataset
+    traj_df = pd.read_csv(traj_path)
+    slope_df = pd.read_csv(slope_path, header=None)
+
+    # Separate forward and backward trajectories
+    forward_trajectory = traj_df[traj_df['Phase'].astype(int) == 1]
+    backward_trajectory = traj_df[traj_df['Phase'].astype(int) == -1]
+
+    # Exclude the last step of the forward_trajectory
+    timesteps = forward_trajectory['Timestep'].unique()[:-1]
+
+    # Align slope_df index with the modified timestep values
+    slope_df.index = timesteps
+
+    # Initialize X with 18 features for all particles combined
+    X = []
+    y = []
+
+    # Loop through each timestep
+    for t in timesteps:
+        timestep_data = []
+        for p in particles:  
+            forward_state = forward_trajectory[(forward_trajectory['Particle Number'] == p) & (forward_trajectory['Timestep'] == t)]
+            
+            # Combine position and velocity into a single array
+            pos_vel = forward_state[pos_vel_cols].values[0]
+            timestep_data.extend(pos_vel)  # Add particle's data for this timestep
+        
+       
+        X.append(timestep_data)
+        y.append(slope_df.loc[t, 0])  # to match slopes index with timestep
+
+    # Convert X and y to numpy arrays
+    X = np.array(X)
+    y = np.array(y)
+
+    return X, y
 
 # Define the MLP model
 mlp_model = Sequential()
@@ -31,58 +63,38 @@ mlp_model.compile(optimizer='adam', loss='mse', metrics=['mae'])
 
 history_list = []
 
-# Iterate over the files and train the model incrementally
-for i, (traj_path, slope_path) in enumerate(zip(trajectory_files, slope_files)):
-    # Load the dataset
-    traj_df = pd.read_csv(traj_path)
-    slope_df = pd.read_csv(slope_path, header=None)
+# Specify the files to be used for training and validation
+train_trajectory_files = [
+    './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv',
+    './Brutus data/plummer_triples_L0_00_i1966_e90_Lw392.csv'
+]
 
-    # Identify position and velocity columns
-    pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
+train_slope_files = [
+    './data/inst_slopes_L0_00_i1775_e90_Lw392.txt',
+    './data/inst_slopes_L0_00_i1966_e90_Lw392.txt'
+]
 
-    # Separate forward and backward trajectories
-    forward_trajectory = traj_df[traj_df['Phase'].astype(int) == 1]
-    backward_trajectory = traj_df[traj_df['Phase'].astype(int) == -1]
+# Specify the file to be used for testing
+test_traj_path = './Brutus data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
+test_slope_path = './data/inst_slopes_L0_00_i2025_e90_Lw392.txt'
 
+# Identify position and velocity columns
+pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
+
+# Iterate over the training files and train the model incrementally
+for i, (traj_path, slope_path) in enumerate(zip(train_trajectory_files, train_slope_files)):
     # Identify unique particles
-    particles = forward_trajectory['Particle Number'].unique()
+    traj_df = pd.read_csv(traj_path)
+    particles = traj_df[traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
 
-    # Initialize X with 18 features for all particles combined
-    X = []
-    y = []
+    # Process the dataset
+    X, y = process_dataset(traj_path, slope_path, pos_vel_cols, particles)
 
-    # Exclude the last step of the forward_trajectory
-    timesteps = forward_trajectory['Timestep'].unique()[:-1]
-
-    # Align slope_df index with the modified timestep values
-    slope_df.index = timesteps
-
-    # Loop through each timestep
-    for t in timesteps:
-        timestep_data = []
-        for p in particles[:3]:  # Take the first three particles
-            forward_state = forward_trajectory[
-                (forward_trajectory['Particle Number'] == p) & (forward_trajectory['Timestep'] == t)
-            ]
-            if not forward_state.empty:
-                # Combine position and velocity into a single array
-                pos_vel = forward_state[pos_vel_cols].values[0]
-                timestep_data.extend(pos_vel)  # Add particle's data for this timestep
-        
-        # Ensure we have data for all 3 particles
-        if len(timestep_data) == 18:  # 6 features (3 positions + 3 velocities) per particle * 3 particles
-            X.append(timestep_data)
-            y.append(slope_df.loc[t, 0])  # Assuming slope_df index matches the timesteps
-
-    # Convert X and y to numpy arrays
-    X = np.array(X)
-    y = np.array(y)
-
-    # Split the data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Split the data into training and validation sets
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
 
     # Train the model
-    history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=50, validation_split=0.2)
+    history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=100, validation_data=(X_val, y_val))
     history_list.append(history)
 
     # Plot training & validation loss values for each file
@@ -96,6 +108,13 @@ for i, (traj_path, slope_path) in enumerate(zip(trajectory_files, slope_files)):
     plt.savefig(f'./figures/loss_evolution_file_{i+1}.png')
     plt.show()
 
+# Load the test dataset
+test_traj_df = pd.read_csv(test_traj_path)
+particles = test_traj_df[test_traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
+
+# Process the test dataset
+X_test, y_test = process_dataset(test_traj_path, test_slope_path, pos_vel_cols, particles)
+
 # Evaluate the model on the test set
 y_pred = mlp_model.predict(X_test)
 mse = mean_squared_error(y_test, y_pred)
@@ -106,11 +125,12 @@ print(f'Test R^2: {r2}')
 
 # Plot true vs predicted values
 plt.figure(figsize=(12, 6))
-plt.scatter(y_test, y_pred, alpha=0.5)
-plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--', lw=2)
+plt.scatter(range(len(y_test)), y_test, alpha=0.5, label='True Values', color='blue')
+plt.scatter(range(len(y_test)), y_pred, alpha=0.5, label='Predicted Values', color='red')
 plt.title('True vs Predicted Values')
-plt.xlabel('True Values')
-plt.ylabel('Predicted Values')
+plt.xlabel('Index')
+plt.ylabel('Values')
+plt.legend()
 plt.grid(True)
 plt.tight_layout()
 plt.savefig('./figures/true_vs_predicted.png')
