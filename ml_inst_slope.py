@@ -53,6 +53,7 @@ def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
     return X, y
 
 # Define the MLP model
+# with 1 input, 3 hidden layers, 1 output layer
 mlp_model = Sequential()
 mlp_model.add(Input(shape=(18,)))  # 18 features (3 positions + 3 velocities) * 3 particles
 mlp_model.add(Dense(128, activation='relu'))
@@ -140,28 +141,6 @@ plt.tight_layout()
 plt.savefig('./figures/true_vs_predicted.png')
 plt.show()
 
-# capire come fare meglio e che sia significativo
-""" # Define input feature names
-input_feature_names = [
-    'x_pos_1', 'y_pos_1', 'z_pos_1', 'x_vel_1', 'y_vel_1', 'z_vel_1',
-    'x_pos_2', 'y_pos_2', 'z_pos_2', 'x_vel_2', 'y_vel_2', 'z_vel_2',
-    'x_pos_3', 'y_pos_3', 'z_pos_3', 'x_vel_3', 'y_vel_3', 'z_vel_3'
-]
-
-# Create a DataFrame with input features and output
-data = pd.DataFrame(X_test, columns=input_feature_names)
-data['slope'] = y_test
-
-# Calculate the correlation matrix
-correlation_matrix = data.corr()
-
-# Plot the correlation matrix
-plt.figure(figsize=(12, 8))
-sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt='.2f')
-plt.title('Correlation Matrix of Input Features and Output (Slope)')
-plt.tight_layout()
-plt.savefig('./figures/input_output_correlation_matrix.png')
-plt.show() """
 
 # Summary plot for average loss across all files
 train_losses = np.array([history.history['loss'] for history in history_list])
@@ -185,4 +164,21 @@ plt.ylabel('Loss')
 plt.legend()
 plt.tight_layout()
 plt.savefig('./figures/average_loss.png')
+plt.show()
+
+# Compute correlation matrix
+input_columns = [f'Particle {p} {col}' for p in particles for col in pos_vel_cols]
+df_corr = pd.DataFrame(X, columns=input_columns)
+df_corr['Target'] = y
+
+correlation_matrix = df_corr.corr()
+
+# Plot heatmap
+plt.figure(figsize=(12, 8))
+sns.heatmap(correlation_matrix.iloc[:-1, -1:], annot=True, cmap='coolwarm', cbar=True)
+plt.title('Correlation Matrix: Input Features vs. Target')
+plt.xlabel('Target (Slope)')
+plt.ylabel('Input Features')
+plt.tight_layout()
+plt.savefig('./figures/correlation_matrix.png')
 plt.show()
