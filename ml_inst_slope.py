@@ -4,14 +4,16 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Input, Dropout
+from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
-# we are only using the forward trajectories, understand if it's ok
-# bc the info about the psd is in their relationship
+# TODO: 
+# 1) instead of mapping to instantaneous slopes do it with parameters
+# to each trajectory map the unique parameters
+# 2) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
 
 # the network is learning from one coordinate at a time
-
 
 def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
     # Load the dataset
@@ -22,7 +24,7 @@ def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
     forward_trajectory = traj_df[traj_df['Phase'].astype(int) == 1]
     backward_trajectory = traj_df[traj_df['Phase'].astype(int) == -1]
 
-    # Exclude the last step of the forward_trajectory
+    # Exclude the last step of the forward_trajectory bc slope_df has one less timestep
     timesteps = forward_trajectory['Timestep'].unique()[:-1]
 
     # Align slope_df index with the modified timestep values
@@ -53,18 +55,46 @@ def process_dataset(traj_path, slope_path, pos_vel_cols, particles):
     return X, y
 
 # Define the MLP model
-# with 1 input, 3 hidden layers, 1 output layer
+# linear stack of layers
 mlp_model = Sequential()
-mlp_model.add(Input(shape=(18,)))  # 18 features (3 positions + 3 velocities) * 3 particles
+
+# Input layer
+mlp_model.add(Input(shape=(18,)))  # 18 features
+
+# First hidden layer
+mlp_model.add(Dense(256, activation='relu'))  # of neurons
+mlp_model.add(BatchNormalization())        
+mlp_model.add(Dropout(0.3))  # rate of input units to drop during training              
+
+# Second hidden layer
+mlp_model.add(Dense(256, activation='relu'))  
+mlp_model.add(BatchNormalization())         
+mlp_model.add(Dropout(0.3))                 
+
+# Third hidden layer
 mlp_model.add(Dense(128, activation='relu'))
+mlp_model.add(BatchNormalization())
 mlp_model.add(Dropout(0.2))
+
+# Fourth hidden layer
 mlp_model.add(Dense(128, activation='relu'))
+mlp_model.add(BatchNormalization())
 mlp_model.add(Dropout(0.2))
+
+# Fifth hidden layer
 mlp_model.add(Dense(64, activation='relu'))
-mlp_model.add(Dense(1, activation='linear'))
+mlp_model.add(BatchNormalization())
+mlp_model.add(Dropout(0.2))
+
+# Output layer
+mlp_model.add(Dense(1, activation='linear'))  # Regression output
 
 # Compile the model
-mlp_model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+mlp_model.compile(
+    optimizer=Adam(learning_rate=0.001),  
+    loss='mse',
+    metrics=['mae']
+)
 
 history_list = []
 
@@ -141,6 +171,21 @@ plt.tight_layout()
 plt.savefig('./figures/true_vs_predicted.png')
 plt.show()
 
+plt.figure(figsize=(12, 6))
+
+# Plot histograms for true and predicted values
+plt.hist(y_test, bins=30, alpha=0.5, label='True Values', color='blue', edgecolor='black')
+plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted Values', color='red', edgecolor='black')
+
+plt.title('Histogram of True vs Predicted Values')
+plt.xlabel('Values')
+plt.ylabel('Frequency')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('./figures/true_vs_predicted_histogram.png')
+plt.show()
+
 
 # Summary plot for average loss across all files
 train_losses = np.array([history.history['loss'] for history in history_list])
@@ -175,6 +220,8 @@ correlation_matrix = df_corr.corr()
 
 # Plot heatmap
 plt.figure(figsize=(12, 8))
+# select only the correlation between input features and target
+# all rows except the last one and only the last column
 sns.heatmap(correlation_matrix.iloc[:-1, -1:], annot=True, cmap='coolwarm', cbar=True)
 plt.title('Correlation Matrix: Input Features vs. Target')
 plt.xlabel('Target (Slope)')
@@ -182,3 +229,13 @@ plt.ylabel('Input Features')
 plt.tight_layout()
 plt.savefig('./figures/correlation_matrix.png')
 plt.show()
+
+
+""" # Example input: 18-dimensional coordinate (positions and velocities of 3 particles)
+example_input = np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6,  # Particle 1
+                           0.7, 0.8, 0.9, 1.0, 1.1, 1.2,  # Particle 2
+                           1.3, 1.4, 1.5, 1.6, 1.7, 1.8]]) # Particle 3
+
+# Predict the instantaneous slope
+predicted_slope = mlp_model.predict(example_input)
+print(f'Predicted Instantaneous Slope: {predicted_slope[0][0]}') """
