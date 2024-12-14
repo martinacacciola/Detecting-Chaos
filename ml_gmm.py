@@ -1,21 +1,38 @@
 import numpy as np
 import pandas as pd
+import glob
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
+import tensorflow as tf
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
 # TODO: 
-# 1) instead of mapping to instantaneous slopes do it with parameters
-# to each trajectory map the unique parameters
-# 2) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
+# problema: le loss hanno valori molto alti che si alternano a zeri
+# 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
+# 2) change the loss function as mse btw predicted and true parameters
+# 3) do not process the whole trajectory when training - select only a subset of timesteps 
+# (random coordinates in different points from same trajectory)
+# 4) try to test only using one coordinate from the file 
 
 # the network is learning from one coordinate at a time
+# to each point belonging uniquely to a trajectory, map the unique parameters
 # goal: from one coordinate, predict the lyapunov exponent distr of the whole trajectory
+
+def custom_loss(y_true, y_pred):
+    # Split predictions into 4 groups (mean, std, weight, height)
+    y_true_split = tf.split(y_true, num_or_size_splits=4, axis=-1)
+    y_pred_split = tf.split(y_pred, num_or_size_splits=4, axis=-1)
+    
+    # Compute MSE for each group
+    mse_per_param = [tf.reduce_mean(tf.square(y_t - y_p)) for y_t, y_p in zip(y_true_split, y_pred_split)]
+    
+    # Return the mean of all parameter-specific losses
+    return tf.reduce_mean(mse_per_param)
 
 def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
     # Load the dataset
@@ -73,114 +90,155 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 
 # Define the MLP model
 # linear stack of layers
-mlp_model = Sequential()
 
-# Input layer
-mlp_model.add(Input(shape=(18,)))  # 18 features
+def create_mlp_model(input_shape, output_units):
+    model = Sequential()
 
-# First hidden layer
-mlp_model.add(Dense(256, activation='relu'))  # of neurons
-mlp_model.add(BatchNormalization())        
-mlp_model.add(Dropout(0.3))  # rate of input units to drop during training              
+    # Input layer
+    model.add(Input(shape=input_shape))
 
-# Second hidden layer
-mlp_model.add(Dense(256, activation='relu'))  
-mlp_model.add(BatchNormalization())         
-mlp_model.add(Dropout(0.3))                 
+    # First hidden layer
+    model.add(Dense(256, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.3))
+    
+    # Second hidden layer
+    model.add(Dense(256, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.3))
+    
+    # Third hidden layer
+    model.add(Dense(128, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.2))
+    
+    # Fourth hidden layer
+    model.add(Dense(128, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.2))
+    
+    # Fifth hidden layer
+    model.add(Dense(64, activation='relu'))
+    model.add(BatchNormalization())
+    model.add(Dropout(0.2))
+    
+    # Output layer
+    model.add(Dense(output_units, activation='linear'))
+    
+    return model
 
-# Third hidden layer
-mlp_model.add(Dense(128, activation='relu'))
-mlp_model.add(BatchNormalization())
-mlp_model.add(Dropout(0.2))
-
-# Fourth hidden layer
-mlp_model.add(Dense(128, activation='relu'))
-mlp_model.add(BatchNormalization())
-mlp_model.add(Dropout(0.2))
-
-# Fifth hidden layer
-mlp_model.add(Dense(64, activation='relu'))
-mlp_model.add(BatchNormalization())
-mlp_model.add(Dropout(0.2))
-
-# Output layer
-mlp_model.add(Dense(8, activation='linear'))  # Regression for 8 outputs
+input_shape = (18,)  # 6 for each particle
+output_units = 8 # 4 for each Gaussian
+mlp_model = create_mlp_model(input_shape, output_units)
 
 
 # Compile the model
+# prova ad aumentare il learning rate
 mlp_model.compile(
     optimizer=Adam(learning_rate=0.01),  
-    loss='mse',
+    loss=custom_loss,
     metrics=['mae']
 )
 
+# Print the model summary to verify the input shape
+#mlp_model.summary()
+
 history_list = []
+n_epochs = 100
 
 # Specify the files to be used for training and validation
-train_trajectory_files = [
-    './Brutus data/plummer_triples_L0_00_i1775_e90_Lw392.csv',
-    './Brutus data/plummer_triples_L0_00_i1966_e90_Lw392.csv'
-]
+train_trajectory_files = glob.glob('./Brutus data/*.csv')
 
-train_gaussian_files = [
-    './data/gmm_parameters_L0_00_i1775_e90_Lw392.txt',
-    './data/gmm_parameters_L0_00_i1966_e90_Lw392.txt'
-]
+train_gaussian_files = glob.glob('./data/*.txt')
 
 # Specify the file to be used for testing
-test_traj_path = './Brutus data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
-test_gaussian_path = './data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
+test_traj_path = './Brutus data/test_data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
+test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 
 # Identify position and velocity columns
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
-# Iterate over the training files and train the model incrementally
+# Initialize separate histories for each parameter
+history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
+
+# Training loop with modified loss tracking
 for i, (traj_path, gaussian_path) in enumerate(zip(train_trajectory_files, train_gaussian_files)):
-    # Identify unique particles
     traj_df = pd.read_csv(traj_path)
     particles = traj_df[traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
-
-    # Process the dataset
+    
     X, y = process_dataset(traj_path, gaussian_path, pos_vel_cols, particles)
-
-    # Shuffle to prevent temporal ordering from affecting the training
     X, y = shuffle(X, y, random_state=42)
-
-    # Split the data into training and validation sets
     X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+    print('X_train size:', X_train.shape)
+    print('y_train size:', y_train.shape)
 
-    # Train the model
-    history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=100, validation_data=(X_val, y_val))
-    history_list.append(history)
+    for epoch in range(n_epochs):  # Simulating epochs
+        # Train and validate
+        history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=1, validation_data=(X_val, y_val), verbose=0)
+        
+        # Predict training and validation losses separately for each parameter
+        y_train_pred = mlp_model.predict(X_train, verbose=0)
+        y_val_pred = mlp_model.predict(X_val, verbose=0)
+        
+        # Split true and predicted into separate groups
+        y_train_split = np.split(y_train, 4, axis=-1)
+        y_val_split = np.split(y_val, 4, axis=-1)
+        y_train_pred_split = np.split(y_train_pred, 4, axis=-1)
+        y_val_pred_split = np.split(y_val_pred, 4, axis=-1)
 
-    # Plot training & validation loss values for each file
-    plt.figure(figsize=(12, 6))
-    plt.plot(history.history['loss'], label='Training Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title(f'Model Loss for File {i+1}')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.savefig(f'./figures/loss_evolution_file_{i+1}.png')
+        # Compute and record losses for each parameter
+        for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+            train_loss = mean_squared_error(y_train_split[idx], y_train_pred_split[idx])
+            val_loss = mean_squared_error(y_val_split[idx], y_val_pred_split[idx])
+
+            print(f'File {i+1}, Epoch {epoch+1}, Parameter {param.capitalize()} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+            
+            history_per_param[param]['train_loss'].append(train_loss)
+            history_per_param[param]['val_loss'].append(val_loss)
+    
+    # Plot the loss evolution for each parameter
+    plt.figure(figsize=(14, 8))
+    
+    for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+        plt.subplot(2, 2, idx + 1)
+        plt.plot(history_per_param[param]['train_loss'], label='Train Loss')
+        plt.plot(history_per_param[param]['val_loss'], label='Validation Loss')
+        plt.title(f'Loss Evolution for {param.capitalize()}')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss (MSE)')
+        plt.legend()
+        plt.tight_layout()
+
+    # Save the figure for this file
+    plt.savefig(f'./figures/loss_evolution_per_param_file_{i+1}.png')
     plt.show()
 
 
-# Load the test dataset
+
+# Evaluate on the test dataset
 test_traj_df = pd.read_csv(test_traj_path)
 particles = test_traj_df[test_traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
-
-# Process the test dataset
 X_test, y_test = process_dataset(test_traj_path, test_gaussian_path, pos_vel_cols, particles)
 
-# Evaluate the model on the test set
+# Predict test results
 y_pred = mlp_model.predict(X_test)
-print('true params:', y_test)
-print('predicted params:', y_pred)
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
+y_test_split = np.split(y_test, 4, axis=-1)
+y_pred_split = np.split(y_pred, 4, axis=-1)
 
-print(f'Test MSE: {mse}')
-print(f'Test R^2: {r2}')
+# Compute test losses for each parameter
+test_losses = {param: mean_squared_error(y_test_split[idx], y_pred_split[idx]) 
+               for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
+
+# Print test losses
+print("Test Losses (MSE) per Parameter:")
+for param, loss in test_losses.items():
+    print(f"{param.capitalize()}: {loss:.4f}")
+
+# Compute overall metrics
+overall_mse = mean_squared_error(y_test, y_pred)
+overall_r2 = r2_score(y_test, y_pred)
+print(f"Overall Test MSE: {overall_mse}")
+print(f"Overall Test R^2: {overall_r2}")
 
 """ # Plot true vs predicted values
 plt.figure(figsize=(12, 6))
