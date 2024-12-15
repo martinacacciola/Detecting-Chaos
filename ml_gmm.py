@@ -13,10 +13,13 @@ import seaborn as sns
 
 # TODO: 
 # problema: validation e training loss quasi sempre uguali
+# !! understand if it is timestep wise
 # 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
 # 2) do not process the whole trajectory when training - select only a subset of timesteps 
 # (random coordinates in different points from same trajectory)
 # 3) try to test only using one coordinate from the file 
+# Warning: You are using a softmax over axis -1 of a tensor of shape (3, 1, 1). This axis has size 1. 
+# The softmax operation will always return the value 1, which is likely not what you intended. Did you mean to use a sigmoid instead?
 
 # the network is learning from one coordinate at a time
 # to each point belonging uniquely to a trajectory, map the unique parameters
@@ -58,10 +61,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
     for t in timesteps:
         timestep_data = []
         for p in particles:
-            forward_state = forward_trajectory[
-                (forward_trajectory['Particle Number'] == p) & 
-                (forward_trajectory['Timestep'] == t)
-            ]
+            forward_state = forward_trajectory[(forward_trajectory['Particle Number'] == p) & (forward_trajectory['Timestep'] == t)]
             
             # Combine position and velocity into a single array
             pos_vel = forward_state[pos_vel_cols].values[0]
@@ -71,12 +71,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 
         # Append Gaussian parameters as the target for this timestep
         # Flatten the 2 Gaussians' parameters into a single array
-        y.append(np.hstack([
-            gaussian_params['mean'],
-            gaussian_params['std'],
-            gaussian_params['weight'],
-            gaussian_params['height']
-        ]))
+        y.append(np.hstack([gaussian_params['mean'], gaussian_params['std'], gaussian_params['weight'], gaussian_params['height']]))
 
     # Convert X and y to numpy arrays
     X = np.array(X)
