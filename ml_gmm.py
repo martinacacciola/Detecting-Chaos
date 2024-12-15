@@ -6,13 +6,14 @@ from sklearn.metrics import mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization, Concatenate
 from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
 # TODO: 
-# problema: le loss hanno valori molto alti che si alternano a zeri
+# problema: le loss hanno valori molto alti che si alternano a zeri, validation e training loss quasi sempre uguali
+# numero di epoche per file cambia anche se sono impostate a 100
 # 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
 # 2) change the loss function as mse btw predicted and true parameters
 # 3) do not process the whole trajectory when training - select only a subset of timesteps 
@@ -91,55 +92,58 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 # Define the MLP model
 # linear stack of layers
 
-def create_mlp_model(input_shape, output_units):
-    model = Sequential()
-
-    # Input layer
-    model.add(Input(shape=input_shape))
+def create_mlp_model(input_shape):
+    inputs = Input(shape=input_shape)
 
     # First hidden layer
-    model.add(Dense(256, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
+    x = Dense(256, activation='relu')(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
     
     # Second hidden layer
-    model.add(Dense(256, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.3))
+    x = Dense(256, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
     
     # Third hidden layer
-    model.add(Dense(128, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.2))
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
     
     # Fourth hidden layer
-    model.add(Dense(128, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.2))
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
     
     # Fifth hidden layer
-    model.add(Dense(64, activation='relu'))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.2))
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
     
-    # Output layer
-    model.add(Dense(output_units, activation='linear'))
+    # Output layers for each parameter with different activation functions
+    mean_output = Dense(2, activation='linear', name='mean_output')(x)
+    std_output = Dense(2, activation='softplus', name='std_output')(x)
+    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
+    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
+
+    # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
+    output = Concatenate()([mean_output, std_output, weight_output, height_output])
     
-    return model
+    # Create the final model
+    final_model = Model(inputs=inputs, outputs=output)
+    
+    return final_model
 
-input_shape = (18,)  # 6 for each particle
-output_units = 8 # 4 for each Gaussian
-mlp_model = create_mlp_model(input_shape, output_units)
-
+# Example usage
+input_shape = (18,)  # 6 for each of the 3 particles
+mlp_model = create_mlp_model(input_shape)
 
 # Compile the model
-# prova ad aumentare il learning rate
 mlp_model.compile(
-    optimizer=Adam(learning_rate=0.01),  
+    optimizer=Adam(),   #learning_rate=0.01
     loss=custom_loss,
     metrics=['mae']
 )
-
 # Print the model summary to verify the input shape
 #mlp_model.summary()
 
@@ -234,39 +238,32 @@ print("Test Losses (MSE) per Parameter:")
 for param, loss in test_losses.items():
     print(f"{param.capitalize()}: {loss:.4f}")
 
+# Test performance with one random set of coordinates from one timestep
+random_index = np.random.randint(0, X_test.shape[0])
+X_random = X_test[random_index].reshape(1, -1)
+y_random = y_test[random_index].reshape(1, -1)
+print('Random X size:', X_random.shape)
+print('Random y size:', y_random.shape)
+
+# Predict for the random sample
+y_random_pred = mlp_model.predict(X_random)
+y_random_split = np.split(y_random, 4, axis=-1)
+y_random_pred_split = np.split(y_random_pred, 4, axis=-1)
+
+# Compute losses for the random sample
+random_losses = {param: mean_squared_error(y_random_split[idx], y_random_pred_split[idx]) 
+                 for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
+
+# Print random sample losses
+print("\nRandom Sample Losses (MSE) per Parameter:")
+for param, loss in random_losses.items():
+    print(f"{param.capitalize()}: {loss:.4f}")
+
 # Compute overall metrics
-overall_mse = mean_squared_error(y_test, y_pred)
-overall_r2 = r2_score(y_test, y_pred)
-print(f"Overall Test MSE: {overall_mse}")
-print(f"Overall Test R^2: {overall_r2}")
-
-""" # Plot true vs predicted values
-plt.figure(figsize=(12, 6))
-plt.scatter(range(len(y_test)), y_test, alpha=0.5, label='True Values', color='blue')
-plt.scatter(range(len(y_test)), y_pred, alpha=0.5, label='Predicted Values', color='red')
-plt.title('True vs Predicted Values')
-plt.xlabel('Index')
-plt.ylabel('Values')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig('./figures/true_vs_predicted.png')
-plt.show()
-
-plt.figure(figsize=(12, 6))
-
-# Plot histograms for true and predicted values
-plt.hist(y_test, bins=30, alpha=0.5, label='True Values', color='blue', edgecolor='black')
-plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted Values', color='red', edgecolor='black')
-
-plt.title('Histogram of True vs Predicted Values')
-plt.xlabel('Values')
-plt.ylabel('Frequency')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig('./figures/true_vs_predicted_histogram.png')
-plt.show() """
+#overall_mse = mean_squared_error(y_test, y_pred)
+#overall_r2 = r2_score(y_test, y_pred)
+#print(f"Overall Test MSE: {overall_mse}")
+#print(f"Overall Test R^2: {overall_r2}")
 
 
 # Summary plot for average loss across all files
@@ -321,3 +318,31 @@ example_input = np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6,  # Particle 1
 # Predict the instantaneous slope
 predicted_slope = mlp_model.predict(example_input)
 print(f'Predicted Instantaneous Slope: {predicted_slope[0][0]}') """
+
+""" # Plot true vs predicted values
+plt.figure(figsize=(12, 6))
+plt.scatter(range(len(y_test)), y_test, alpha=0.5, label='True Values', color='blue')
+plt.scatter(range(len(y_test)), y_pred, alpha=0.5, label='Predicted Values', color='red')
+plt.title('True vs Predicted Values')
+plt.xlabel('Index')
+plt.ylabel('Values')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('./figures/true_vs_predicted.png')
+plt.show()
+
+plt.figure(figsize=(12, 6))
+
+# Plot histograms for true and predicted values
+plt.hist(y_test, bins=30, alpha=0.5, label='True Values', color='blue', edgecolor='black')
+plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted Values', color='red', edgecolor='black')
+
+plt.title('Histogram of True vs Predicted Values')
+plt.xlabel('Values')
+plt.ylabel('Frequency')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('./figures/true_vs_predicted_histogram.png')
+plt.show() """
