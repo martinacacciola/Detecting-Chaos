@@ -12,13 +12,11 @@ from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
 # TODO: 
-# problema: le loss hanno valori molto alti che si alternano a zeri, validation e training loss quasi sempre uguali
-# numero di epoche per file cambia anche se sono impostate a 100
+# problema: validation e training loss quasi sempre uguali
 # 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
-# 2) change the loss function as mse btw predicted and true parameters
-# 3) do not process the whole trajectory when training - select only a subset of timesteps 
+# 2) do not process the whole trajectory when training - select only a subset of timesteps 
 # (random coordinates in different points from same trajectory)
-# 4) try to test only using one coordinate from the file 
+# 3) try to test only using one coordinate from the file 
 
 # the network is learning from one coordinate at a time
 # to each point belonging uniquely to a trajectory, map the unique parameters
@@ -163,10 +161,13 @@ test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
 # Initialize separate histories for each parameter
-history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
+#history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
 
-# Training loop with modified loss tracking
+# Training loop
 for i, (traj_path, gaussian_path) in enumerate(zip(train_trajectory_files, train_gaussian_files)):
+    # Reset history for each parameter before processing the file
+    history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
+    
     traj_df = pd.read_csv(traj_path)
     particles = traj_df[traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
     
@@ -266,29 +267,33 @@ for param, loss in random_losses.items():
 #print(f"Overall Test R^2: {overall_r2}")
 
 
-# Summary plot for average loss across all files
-train_losses = np.array([history.history['loss'] for history in history_list])
-val_losses = np.array([history.history['val_loss'] for history in history_list])
+# Summary plot for average loss across all files for each parameter
+for param in history_per_param:
+    train_losses = np.array(history_per_param[param]['train_loss'])
+    val_losses = np.array(history_per_param[param]['val_loss'])
 
-mean_train_loss = np.mean(train_losses, axis=0)
-std_train_loss = np.std(train_losses, axis=0)
-mean_val_loss = np.mean(val_losses, axis=0)
-std_val_loss = np.std(val_losses, axis=0)
+    if train_losses.size > 0 and val_losses.size > 0:
+        mean_train_loss = np.mean(train_losses, axis=0)
+        std_train_loss = np.std(train_losses, axis=0)
+        mean_val_loss = np.mean(val_losses, axis=0)
+        std_val_loss = np.std(val_losses, axis=0)
 
-epochs = range(1, len(mean_train_loss) + 1)
+        epochs = range(1, len(mean_train_loss) + 1)
 
-plt.figure(figsize=(12, 6))
-plt.plot(epochs, mean_train_loss, label='Mean Training Loss')
-plt.fill_between(epochs, mean_train_loss - std_train_loss, mean_train_loss + std_train_loss, alpha=0.2)
-plt.plot(epochs, mean_val_loss, label='Mean Validation Loss')
-plt.fill_between(epochs, mean_val_loss - std_val_loss, mean_val_loss + std_val_loss, alpha=0.2)
-plt.title('Average Model Loss Across All Files')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
-plt.tight_layout()
-plt.savefig('./figures/average_loss.png')
-plt.show()
+        plt.figure(figsize=(12, 6))
+        plt.plot(epochs, mean_train_loss, label=f'Mean Training Loss ({param})')
+        plt.fill_between(epochs, mean_train_loss - std_train_loss, mean_train_loss + std_train_loss, alpha=0.2)
+        plt.plot(epochs, mean_val_loss, label=f'Mean Validation Loss ({param})')
+        plt.fill_between(epochs, mean_val_loss - std_val_loss, mean_val_loss + std_val_loss, alpha=0.2)
+        plt.title(f'Average Model Loss Across All Files ({param})')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f'./figures/average_loss_{param}.png')
+        plt.show()
+    else:
+        print(f"No valid training or validation loss data available for {param}.")
 
 """ # Compute correlation matrix
 input_columns = [f'Particle {p} {col}' for p in particles for col in pos_vel_cols]
