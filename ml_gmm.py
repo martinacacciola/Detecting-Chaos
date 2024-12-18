@@ -15,9 +15,9 @@ import seaborn as sns
 # problema: validation e training loss quasi sempre uguali
 # !! understand if it is timestep wise
 # 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
+# ok but should we put less inputs in this case?
 # 2) do not process the whole trajectory when training - select only a subset of timesteps 
 # (random coordinates in different points from same trajectory)
-# 3) try to test only using one coordinate from the file 
 # Warning: You are using a softmax over axis -1 of a tensor of shape (3, 1, 1). This axis has size 1. 
 # The softmax operation will always return the value 1, which is likely not what you intended. Did you mean to use a sigmoid instead?
 
@@ -35,6 +35,8 @@ def custom_loss(y_true, y_pred):
     
     # Return the mean of all parameter-specific losses
     return tf.reduce_mean(mse_per_param)
+
+
 
 def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
     # Load the dataset
@@ -65,12 +67,38 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
             
             # Combine position and velocity into a single array
             pos_vel = forward_state[pos_vel_cols].values[0]
-            timestep_data.extend(pos_vel)  # Add particle's data for this timestep
+            timestep_data.append(pos_vel)  # Add particle's data for this timestep
 
-        X.append(timestep_data)
+        timestep_data = np.array(timestep_data)
+
+        # Reorganize particles
+        # assume first particle to be at the origin, second on x axis and third on x-y plane
+        origin_particle = timestep_data[0, :2] 
+        # euclidean distances from origin particles to all the others
+        distances = np.linalg.norm(timestep_data[:, :2] - origin_particle, axis=1)
+        nearest_neighbor_idx = np.argmin(distances[1:]) + 1 
+
+        # Translate particles so that the origin particle is at the origin
+        # subtract the coords of origin particle from all the others
+        timestep_data[:, :2] -= origin_particle
+
+        # Calculate the angle to rotate the nearest neighbor to the positive x-axis
+        nearest_neighbor = timestep_data[nearest_neighbor_idx, :2]
+        angle = -np.arctan2(nearest_neighbor[1], nearest_neighbor[0])
+
+        # Create rotation matrix
+        rotation_matrix = np.array([
+            [np.cos(angle), -np.sin(angle)],
+            [np.sin(angle), np.cos(angle)]
+        ])
+
+        # Rotate all particles
+        timestep_data[:, :2] = np.dot(timestep_data[:, :2], rotation_matrix)
+
+        # Flatten the timestep data and append to X
+        X.append(timestep_data.flatten())
 
         # Append Gaussian parameters as the target for this timestep
-        # Flatten the 2 Gaussians' parameters into a single array
         y.append(np.hstack([gaussian_params['mean'], gaussian_params['std'], gaussian_params['weight'], gaussian_params['height']]))
 
     # Convert X and y to numpy arrays
@@ -235,11 +263,12 @@ for param, loss in test_losses.items():
     print(f"{param.capitalize()}: {loss:.4f}")
 
 # Test performance with one random set of coordinates from one timestep
+# generate index btw 0 and number of samples
 random_index = np.random.randint(0, X_test.shape[0])
 X_random = X_test[random_index].reshape(1, -1)
 y_random = y_test[random_index].reshape(1, -1)
-print('Random X size:', X_random.shape)
-print('Random y size:', y_random.shape)
+print('Random X size:', X_random.shape) # 1, 18
+print('Random y size:', y_random.shape) # 1, 8
 
 # Predict for the random sample
 y_random_pred = mlp_model.predict(X_random)
@@ -255,13 +284,8 @@ print("\nRandom Sample Losses (MSE) per Parameter:")
 for param, loss in random_losses.items():
     print(f"{param.capitalize()}: {loss:.4f}")
 
-# Compute overall metrics
-#overall_mse = mean_squared_error(y_test, y_pred)
-#overall_r2 = r2_score(y_test, y_pred)
-#print(f"Overall Test MSE: {overall_mse}")
-#print(f"Overall Test R^2: {overall_r2}")
 
-
+# da sistemare
 # Summary plot for average loss across all files for each parameter
 for param in history_per_param:
     train_losses = np.array(history_per_param[param]['train_loss'])
