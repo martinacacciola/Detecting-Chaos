@@ -200,35 +200,49 @@ X_train, X_val, y_train, y_val = train_test_split(all_X, all_y, test_size=0.2, r
 print('X_train size:', X_train.shape)
 print('y_train size:', y_train.shape)
 
-# Train the model
-history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=n_epochs, validation_data=(X_val, y_val), verbose=1)
+# Initialize dictionaries to store losses
+losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']},
+                    'val_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']}}
 
-# Predict training and validation losses separately for each parameter
-y_train_pred = mlp_model.predict(X_train, verbose=0)
-y_val_pred = mlp_model.predict(X_val, verbose=0)
-
-# Split true and predicted into separate groups
-y_train_split = np.split(y_train, 4, axis=-1)
-y_val_split = np.split(y_val, 4, axis=-1)
-y_train_pred_split = np.split(y_train_pred, 4, axis=-1)
-y_val_pred_split = np.split(y_val_pred, 4, axis=-1)
-
-# Compute and record losses for each parameter
-losses_per_param = {'train_loss': [], 'val_loss': []}
-for i, param in enumerate(['mean', 'std', 'weight', 'height']):
-    train_loss = np.mean((y_train_split[i] - y_train_pred_split[i]) ** 2)
-    val_loss = np.mean((y_val_split[i] - y_val_pred_split[i]) ** 2)
-    losses_per_param['train_loss'].append(train_loss)
-    losses_per_param['val_loss'].append(val_loss)
-    print(f'{param} - Train Loss: {train_loss}, Val Loss: {val_loss}')
+# Train the model on random samples
+batch_size = 32
+n_epochs = 100
+for epoch in range(n_epochs):
+    # Shuffle the training data
+    X_train, y_train = shuffle(X_train, y_train, random_state=epoch)
     
+    # Select a random sample
+    idx = np.random.choice(len(X_train), batch_size, replace=False)
+    X_batch = X_train[idx]
+    y_batch = y_train[idx]
+    
+    # Train on the random sample
+    mlp_model.fit(X_batch, y_batch, epochs=1, verbose=1, validation_data=(X_val, y_val))
+    
+    # Predict training and validation losses separately for each parameter
+    y_train_pred = mlp_model.predict(X_train, verbose=0)
+    y_val_pred = mlp_model.predict(X_val, verbose=0)
+    
+    # Split true and predicted into separate groups
+    y_train_split = np.split(y_train, 4, axis=-1)
+    y_val_split = np.split(y_val, 4, axis=-1)
+    y_train_pred_split = np.split(y_train_pred, 4, axis=-1)
+    y_val_pred_split = np.split(y_val_pred, 4, axis=-1)
+    
+    # Compute and record losses for each parameter
+    for i, param in enumerate(['mean', 'std', 'weight', 'height']):
+        train_loss = np.mean((y_train_split[i] - y_train_pred_split[i]) ** 2)
+        val_loss = np.mean((y_val_split[i] - y_val_pred_split[i]) ** 2)
+        losses_per_param['train_loss'][param].append(train_loss)
+        losses_per_param['val_loss'][param].append(val_loss)
+
 # Plot the loss evolution for each parameter
 plt.figure(figsize=(14, 8))
 
 for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.subplot(2, 2, idx + 1)
-    plt.plot(losses_per_param['train_loss'][idx], label='Train Loss')
-    plt.plot(losses_per_param['val_loss'][idx], label='Validation Loss')
+    plt.plot(losses_per_param['train_loss'][param], label='Train Loss')
+    plt.plot(losses_per_param['val_loss'][param], label='Validation Loss')
     plt.title(f'Loss Evolution for {param.capitalize()}')
     plt.xlabel('Epoch')
     plt.ylabel('Loss (MSE)')
