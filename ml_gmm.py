@@ -37,7 +37,6 @@ def custom_loss(y_true, y_pred):
     return tf.reduce_mean(mse_per_param)
 
 
-
 def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
     # Load the dataset
     traj_df = pd.read_csv(traj_path)
@@ -49,13 +48,11 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
         'height': gaussian_df.iloc[3].values.astype(float),
     }
 
-    # Separate forward and backward trajectories
     forward_trajectory = traj_df[traj_df['Phase'].astype(int) == 1]
-    
-    # Use all timesteps
     timesteps = forward_trajectory['Timestep'].unique()
 
-    # Initialize X with 18 features for all particles combined
+    # X = 18 coordinates for all particles combined
+    # y = 8 target parameters (mean, std, weight, height) for each timestep
     X = []
     y = []
 
@@ -95,17 +92,13 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
         # Rotate all particles
         timestep_data[:, :2] = np.dot(timestep_data[:, :2], rotation_matrix)
 
-        # Flatten the timestep data and append to X
         X.append(timestep_data.flatten())
 
         # Append Gaussian parameters as the target for this timestep
         y.append(np.hstack([gaussian_params['mean'], gaussian_params['std'], gaussian_params['weight'], gaussian_params['height']]))
 
-    # Convert X and y to numpy arrays
-    X = np.array(X)
-    print('X size:', X.shape)   
-    y = np.array(y)
-    print('y size:', y.shape)
+    X = np.array(X) # (n_timesteps, 18)
+    y = np.array(y) # (n_timesteps, 8)
 
     return X, y
 
@@ -155,7 +148,6 @@ def create_mlp_model(input_shape):
     
     return final_model
 
-# Example usage
 input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
 
@@ -171,20 +163,17 @@ mlp_model.compile(
 history_list = []
 n_epochs = 100
 
-# Specify the files to be used for training and validation
+# files for training and validation
 train_trajectory_files = glob.glob('./Brutus data/*.csv')
 
 train_gaussian_files = glob.glob('./data/*.txt')
 
-# Specify the file to be used for testing
+# file for testing
 test_traj_path = './Brutus data/test_data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
 test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 
 # Identify position and velocity columns
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
-
-# Initialize separate histories for each parameter
-#history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
 
 # Training loop
 for i, (traj_path, gaussian_path) in enumerate(zip(train_trajectory_files, train_gaussian_files)):
@@ -241,8 +230,6 @@ for i, (traj_path, gaussian_path) in enumerate(zip(train_trajectory_files, train
     plt.savefig(f'./figures/loss_evolution_per_param_file_{i+1}.png')
     plt.show()
 
-
-
 # Evaluate on the test dataset
 test_traj_df = pd.read_csv(test_traj_path)
 particles = test_traj_df[test_traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
@@ -257,7 +244,6 @@ y_pred_split = np.split(y_pred, 4, axis=-1)
 test_losses = {param: mean_squared_error(y_test_split[idx], y_pred_split[idx]) 
                for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
 
-# Print test losses
 print("Test Losses (MSE) per Parameter:")
 for param, loss in test_losses.items():
     print(f"{param.capitalize()}: {loss:.4f}")
@@ -270,12 +256,10 @@ y_random = y_test[random_index].reshape(1, -1)
 print('Random X size:', X_random.shape) # 1, 18
 print('Random y size:', y_random.shape) # 1, 8
 
-# Predict for the random sample
 y_random_pred = mlp_model.predict(X_random)
 y_random_split = np.split(y_random, 4, axis=-1)
 y_random_pred_split = np.split(y_random_pred, 4, axis=-1)
 
-# Compute losses for the random sample
 random_losses = {param: mean_squared_error(y_random_split[idx], y_random_pred_split[idx]) 
                  for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
 
