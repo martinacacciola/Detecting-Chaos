@@ -175,60 +175,69 @@ test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 # Identify position and velocity columns
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
-# Training loop
-for i, (traj_path, gaussian_path) in enumerate(zip(train_trajectory_files, train_gaussian_files)):
-    # Reset history for each parameter before processing the file
-    history_per_param = {param: {'train_loss': [], 'val_loss': []} for param in ['mean', 'std', 'weight', 'height']}
-    
+# Initialize lists to hold all trajectories and parameters
+all_X = []
+all_y = []
+
+# Load all trajectories and parameters
+for traj_path, gaussian_path in zip(train_trajectory_files, train_gaussian_files):
     traj_df = pd.read_csv(traj_path)
     particles = traj_df[traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
     
     X, y = process_dataset(traj_path, gaussian_path, pos_vel_cols, particles)
-    X, y = shuffle(X, y, random_state=42)
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-    print('X_train size:', X_train.shape)
-    print('y_train size:', y_train.shape)
+    all_X.append(X)
+    all_y.append(y)
 
-    for epoch in range(n_epochs):  # Simulating epochs
-        # Train and validate
-        history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=1, validation_data=(X_val, y_val), verbose=0)
-        
-        # Predict training and validation losses separately for each parameter
-        y_train_pred = mlp_model.predict(X_train, verbose=0)
-        y_val_pred = mlp_model.predict(X_val, verbose=0)
-        
-        # Split true and predicted into separate groups
-        y_train_split = np.split(y_train, 4, axis=-1)
-        y_val_split = np.split(y_val, 4, axis=-1)
-        y_train_pred_split = np.split(y_train_pred, 4, axis=-1)
-        y_val_pred_split = np.split(y_val_pred, 4, axis=-1)
+# Concatenate all trajectories and parameters
+all_X = np.concatenate(all_X, axis=0)
+all_y = np.concatenate(all_y, axis=0)
 
-        # Compute and record losses for each parameter
-        for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
-            train_loss = mean_squared_error(y_train_split[idx], y_train_pred_split[idx])
-            val_loss = mean_squared_error(y_val_split[idx], y_val_pred_split[idx])
+# Shuffle the dataset
+all_X, all_y = shuffle(all_X, all_y, random_state=42)
 
-            print(f'File {i+1}, Epoch {epoch+1}, Parameter {param.capitalize()} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
-            
-            history_per_param[param]['train_loss'].append(train_loss)
-            history_per_param[param]['val_loss'].append(val_loss)
+# Split the dataset into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(all_X, all_y, test_size=0.2, random_state=42)
+print('X_train size:', X_train.shape)
+print('y_train size:', y_train.shape)
+
+# Train the model
+history = mlp_model.fit(X_train, y_train, batch_size=32, epochs=n_epochs, validation_data=(X_val, y_val), verbose=1)
+
+# Predict training and validation losses separately for each parameter
+y_train_pred = mlp_model.predict(X_train, verbose=0)
+y_val_pred = mlp_model.predict(X_val, verbose=0)
+
+# Split true and predicted into separate groups
+y_train_split = np.split(y_train, 4, axis=-1)
+y_val_split = np.split(y_val, 4, axis=-1)
+y_train_pred_split = np.split(y_train_pred, 4, axis=-1)
+y_val_pred_split = np.split(y_val_pred, 4, axis=-1)
+
+# Compute and record losses for each parameter
+losses_per_param = {'train_loss': [], 'val_loss': []}
+for i, param in enumerate(['mean', 'std', 'weight', 'height']):
+    train_loss = np.mean((y_train_split[i] - y_train_pred_split[i]) ** 2)
+    val_loss = np.mean((y_val_split[i] - y_val_pred_split[i]) ** 2)
+    losses_per_param['train_loss'].append(train_loss)
+    losses_per_param['val_loss'].append(val_loss)
+    print(f'{param} - Train Loss: {train_loss}, Val Loss: {val_loss}')
     
-    # Plot the loss evolution for each parameter
-    plt.figure(figsize=(14, 8))
-    
-    for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
-        plt.subplot(2, 2, idx + 1)
-        plt.plot(history_per_param[param]['train_loss'], label='Train Loss')
-        plt.plot(history_per_param[param]['val_loss'], label='Validation Loss')
-        plt.title(f'Loss Evolution for {param.capitalize()}')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss (MSE)')
-        plt.legend()
-        plt.tight_layout()
+# Plot the loss evolution for each parameter
+plt.figure(figsize=(14, 8))
 
-    # Save the figure for this file
-    plt.savefig(f'./figures/loss_evolution_per_param_file_{i+1}.png')
-    plt.show()
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    plt.subplot(2, 2, idx + 1)
+    plt.plot(losses_per_param['train_loss'][idx], label='Train Loss')
+    plt.plot(losses_per_param['val_loss'][idx], label='Validation Loss')
+    plt.title(f'Loss Evolution for {param.capitalize()}')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss (MSE)')
+    plt.legend()
+    plt.tight_layout()
+
+# Save the figure
+plt.savefig('./figures/loss_evolution_per_param.png')
+plt.show()
 
 # Evaluate on the test dataset
 test_traj_df = pd.read_csv(test_traj_path)
@@ -269,7 +278,7 @@ for param, loss in random_losses.items():
     print(f"{param.capitalize()}: {loss:.4f}")
 
 
-# da sistemare
+""" # da sistemare
 # Summary plot for average loss across all files for each parameter
 for param in history_per_param:
     train_losses = np.array(history_per_param[param]['train_loss'])
@@ -296,7 +305,7 @@ for param in history_per_param:
         plt.savefig(f'./figures/average_loss_{param}.png')
         plt.show()
     else:
-        print(f"No valid training or validation loss data available for {param}.")
+        print(f"No valid training or validation loss data available for {param}.") """
 
 """ # Compute correlation matrix
 input_columns = [f'Particle {p} {col}' for p in particles for col in pos_vel_cols]
