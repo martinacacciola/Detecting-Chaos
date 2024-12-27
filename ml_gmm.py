@@ -191,6 +191,8 @@ for traj_path, gaussian_path in zip(train_trajectory_files, train_gaussian_files
 # Concatenate all trajectories and parameters
 all_X = np.concatenate(all_X, axis=0)
 all_y = np.concatenate(all_y, axis=0)
+print('All X size:', all_X.shape)
+print('All y size:', all_y.shape)
 
 # Shuffle the dataset
 all_X, all_y = shuffle(all_X, all_y, random_state=42)
@@ -199,6 +201,8 @@ all_X, all_y = shuffle(all_X, all_y, random_state=42)
 X_train, X_val, y_train, y_val = train_test_split(all_X, all_y, test_size=0.2, random_state=42)
 print('X_train size:', X_train.shape)
 print('y_train size:', y_train.shape)
+print('X_val size:', X_val.shape)
+print('y_val size:', y_val.shape)
 
 # Initialize dictionaries to store losses
 losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']},
@@ -215,13 +219,15 @@ for epoch in range(n_epochs):
     idx = np.random.choice(len(X_train), batch_size, replace=False)
     X_batch = X_train[idx]
     y_batch = y_train[idx]
+    print('X_batch size:', X_batch.shape)
+    print('y_batch size:', y_batch.shape)
     
     # Train on the random sample
     mlp_model.fit(X_batch, y_batch, epochs=1, verbose=1, validation_data=(X_val, y_val))
     
     # Predict training and validation losses separately for each parameter
-    y_train_pred = mlp_model.predict(X_train, verbose=0)
-    y_val_pred = mlp_model.predict(X_val, verbose=0)
+    y_train_pred = mlp_model.predict(X_train, verbose=0) 
+    y_val_pred = mlp_model.predict(X_val, verbose=0) 
     
     # Split true and predicted into separate groups
     y_train_split = np.split(y_train, 4, axis=-1)
