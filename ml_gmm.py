@@ -18,22 +18,22 @@ import seaborn as sns
 # ok but should we put less inputs in this case?
 # 2) do not process the whole trajectory when training - select only a subset of timesteps 
 # (random coordinates in different points from same trajectory)
-# Warning: You are using a softmax over axis -1 of a tensor of shape (3, 1, 1). This axis has size 1. 
-# The softmax operation will always return the value 1, which is likely not what you intended. Did you mean to use a sigmoid instead?
+# 3) find a way to give already the whole dataset ready (in X_all and y_all) without the preprocess
+# dopo all_X e all_y, salva in txt??
 
 # the network is learning from one coordinate at a time
 # to each point belonging uniquely to a trajectory, map the unique parameters
 # goal: from one coordinate, predict the lyapunov exponent distr of the whole trajectory
 
 def custom_loss(y_true, y_pred):
-    # Split predictions into 4 groups (mean, std, weight, height)
+    # Split predictions into 4 groups (mean, std, weight, height) along the last dimension of the tensor
     y_true_split = tf.split(y_true, num_or_size_splits=4, axis=-1)
     y_pred_split = tf.split(y_pred, num_or_size_splits=4, axis=-1)
     
     # Compute MSE for each group
     mse_per_param = [tf.reduce_mean(tf.square(y_t - y_p)) for y_t, y_p in zip(y_true_split, y_pred_split)]
     
-    # Return the mean of all parameter-specific losses
+    # Return the mean of all parameters losses
     return tf.reduce_mean(mse_per_param)
 
 
@@ -70,7 +70,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 
         # Reorganize particles
         # assume first particle to be at the origin, second on x axis and third on x-y plane
-        origin_particle = timestep_data[0, :2] 
+        origin_particle = timestep_data[0, :2]  # select x-y values
         # euclidean distances from origin particles to all the others
         distances = np.linalg.norm(timestep_data[:, :2] - origin_particle, axis=1)
         nearest_neighbor_idx = np.argmin(distances[1:]) + 1 
@@ -175,6 +175,10 @@ test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 # Identify position and velocity columns
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Velocity', 'Z Velocity']
 
+# below to concatenate all the files in one
+# do it just once and save the concatenated files
+""" 
+
 # Initialize lists to hold all trajectories and parameters
 all_X = []
 all_y = []
@@ -191,6 +195,12 @@ for traj_path, gaussian_path in zip(train_trajectory_files, train_gaussian_files
 # Concatenate all trajectories and parameters
 all_X = np.concatenate(all_X, axis=0)
 all_y = np.concatenate(all_y, axis=0)
+np.savetxt('./data/all_X.csv', all_X, delimiter=',')
+np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
+
+all_X = np.genfromtxt('./data/all_X.csv', delimiter=',')
+all_y = np.genfromtxt('./data/all_y.csv', delimiter=',')
+
 print('All X size:', all_X.shape)
 print('All y size:', all_y.shape)
 
@@ -226,6 +236,7 @@ for epoch in range(n_epochs):
     mlp_model.fit(X_batch, y_batch, epochs=1, verbose=1, validation_data=(X_val, y_val))
     
     # Predict training and validation losses separately for each parameter
+    # should we use the whole dataset or just the batch? when using just the batch oscillatory loss for training
     y_train_pred = mlp_model.predict(X_train, verbose=0) 
     y_val_pred = mlp_model.predict(X_val, verbose=0) 
     
