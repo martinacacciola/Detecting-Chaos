@@ -12,14 +12,13 @@ from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
 # TODO: 
-# problema: validation e training loss quasi sempre uguali
+# problema: custom_loss (o anche l'altra) non è adatta agli split e non la si sta utilizzando per i grafici
 # !! understand if it is timestep wise
 # 1) change the input s.t. 1 particle is always at the origin, the 2 on x axis and the 3 rotated accordingly
 # ok but should we put less inputs in this case?
 # 2) do not process the whole trajectory when training - select only a subset of timesteps 
 # (random coordinates in different points from same trajectory)
-# 3) find a way to give already the whole dataset ready (in X_all and y_all) without the preprocess
-# dopo all_X e all_y, salva in txt??
+# 3) use a more appropriate loss function 
 
 # the network is learning from one coordinate at a time
 # to each point belonging uniquely to a trajectory, map the unique parameters
