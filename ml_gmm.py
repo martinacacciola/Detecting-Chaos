@@ -105,34 +105,48 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 # Define the MLP model
 # linear stack of layers
 
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense, BatchNormalization, Dropout, Concatenate, LeakyReLU
+
 def create_mlp_model(input_shape):
     inputs = Input(shape=input_shape)
 
-    # First hidden layer
-    x = Dense(256, activation='relu')(inputs)
+    # First hidden block
+    x = Dense(512)(inputs)  # Increase neurons
+    x = LeakyReLU(alpha=0.1)(x)  # Use LeakyReLU instead of ReLU for better gradient flow
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)  # Increase dropout rate
+
+    # Second hidden block
+    x = Dense(512)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)
+
+    # Third hidden block
+    x = Dense(256)(x)
+    x = LeakyReLU(alpha=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
-    
-    # Second hidden layer
-    x = Dense(256, activation='relu')(x)
+
+    # Fourth hidden block
+    x = Dense(256)(x)
+    x = LeakyReLU(alpha=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
-    
-    # Third hidden layer
-    x = Dense(128, activation='relu')(x)
+
+    # Fifth hidden block
+    x = Dense(128)(x)
+    x = LeakyReLU(alpha=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # Sixth hidden block
+    x = Dense(128)(x)
+    x = LeakyReLU(alpha=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
-    
-    # Fourth hidden layer
-    x = Dense(128, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Fifth hidden layer
-    x = Dense(64, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
+
     # Output layers for each parameter with different activation functions
     mean_output = Dense(2, activation='linear', name='mean_output')(x)
     std_output = Dense(2, activation='softplus', name='std_output')(x)
@@ -147,13 +161,14 @@ def create_mlp_model(input_shape):
     
     return final_model
 
+
 input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
 
 # Compile the model
 mlp_model.compile(
     optimizer=Adam(),   #learning_rate=0.01
-    loss=custom_loss,
+    loss= 'mean_squared_error',   #custom_loss,
     metrics=['mae']
 )
 # Print the model summary to verify the input shape
@@ -197,11 +212,15 @@ all_y = np.concatenate(all_y, axis=0)
 np.savetxt('./data/all_X.csv', all_X, delimiter=',')
 np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
 
-all_X = np.genfromtxt('./data/all_X.csv', delimiter=',')
-all_y = np.genfromtxt('./data/all_y.csv', delimiter=',')
+all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
+all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
 
-print('All X size:', all_X.shape)
-print('All y size:', all_y.shape)
+print('All X size:', all_X_tot.shape)
+print('All y size:', all_y_tot.shape)
+
+# select a percentage of the data for training
+sample_size = int(0.1 * len(all_X_tot))
+all_X, all_y = all_X_tot[:sample_size], all_y_tot[:sample_size]
 
 # Shuffle the dataset
 all_X, all_y = shuffle(all_X, all_y, random_state=42)
@@ -217,19 +236,17 @@ print('y_val size:', y_val.shape)
 losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']},
                     'val_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']}}
 
-# Train the model on random samples
+# Trainining loop
 batch_size = 32
-n_epochs = 100
+n_epochs = 4000 #10000
 for epoch in range(n_epochs):
     # Shuffle the training data
     X_train, y_train = shuffle(X_train, y_train, random_state=epoch)
     
     # Select a random sample
     idx = np.random.choice(len(X_train), batch_size, replace=False)
-    X_batch = X_train[idx]
-    y_batch = y_train[idx]
-    print('X_batch size:', X_batch.shape)
-    print('y_batch size:', y_batch.shape)
+    X_batch = X_train[idx] # (batch_size, 18)
+    y_batch = y_train[idx] # (batch_size, 8)
     
     # Train on the random sample
     mlp_model.fit(X_batch, y_batch, epochs=1, verbose=1, validation_data=(X_val, y_val))
@@ -262,6 +279,7 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.title(f'Loss Evolution for {param.capitalize()}')
     plt.xlabel('Epoch')
     plt.ylabel('Loss (MSE)')
+    #plt.yscale('log')
     plt.legend()
     plt.tight_layout()
 
@@ -366,30 +384,46 @@ example_input = np.array([[0.1, 0.2, 0.3, 0.4, 0.5, 0.6,  # Particle 1
 predicted_slope = mlp_model.predict(example_input)
 print(f'Predicted Instantaneous Slope: {predicted_slope[0][0]}') """
 
-""" # Plot true vs predicted values
-plt.figure(figsize=(12, 6))
-plt.scatter(range(len(y_test)), y_test, alpha=0.5, label='True Values', color='blue')
-plt.scatter(range(len(y_test)), y_pred, alpha=0.5, label='Predicted Values', color='red')
-plt.title('True vs Predicted Values')
-plt.xlabel('Index')
-plt.ylabel('Values')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig('./figures/true_vs_predicted.png')
-plt.show()
+""" 
+# previous model
+def create_mlp_model(input_shape):
+    inputs = Input(shape=input_shape)
 
-plt.figure(figsize=(12, 6))
+    # First hidden layer
+    x = Dense(256, activation='relu')(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Second hidden layer
+    x = Dense(256, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Third hidden layer
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Fourth hidden layer
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Fifth hidden layer
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Output layers for each parameter with different activation functions
+    mean_output = Dense(2, activation='linear', name='mean_output')(x)
+    std_output = Dense(2, activation='softplus', name='std_output')(x)
+    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
+    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
 
-# Plot histograms for true and predicted values
-plt.hist(y_test, bins=30, alpha=0.5, label='True Values', color='blue', edgecolor='black')
-plt.hist(y_pred, bins=30, alpha=0.5, label='Predicted Values', color='red', edgecolor='black')
-
-plt.title('Histogram of True vs Predicted Values')
-plt.xlabel('Values')
-plt.ylabel('Frequency')
-plt.legend()
-plt.grid(True)
-plt.tight_layout()
-plt.savefig('./figures/true_vs_predicted_histogram.png')
-plt.show() """
+    # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
+    output = Concatenate()([mean_output, std_output, weight_output, height_output])
+    
+    # Create the final model
+    final_model = Model(inputs=inputs, outputs=output)
+    
+    return final_model """
