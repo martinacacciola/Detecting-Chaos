@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization, Concatenate
+from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization, Concatenate, LeakyReLU
 from tensorflow.keras.optimizers import Adam
 import seaborn as sns
 
@@ -105,45 +105,42 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 # Define the MLP model
 # linear stack of layers
 
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, BatchNormalization, Dropout, Concatenate, LeakyReLU
-
 def create_mlp_model(input_shape):
     inputs = Input(shape=input_shape)
 
     # First hidden block
     x = Dense(512)(inputs)  # Increase neurons
-    x = LeakyReLU(alpha=0.1)(x)  # Use LeakyReLU instead of ReLU for better gradient flow
+    x = LeakyReLU(negative_slope=0.1)(x)  # Use LeakyReLU instead of ReLU for better gradient flow
     x = BatchNormalization()(x)
     x = Dropout(0.4)(x)  # Increase dropout rate
 
     # Second hidden block
     x = Dense(512)(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.4)(x)
 
     # Third hidden block
     x = Dense(256)(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
 
     # Fourth hidden block
     x = Dense(256)(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
 
     # Fifth hidden block
     x = Dense(128)(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
 
     # Sixth hidden block
     x = Dense(128)(x)
-    x = LeakyReLU(alpha=0.1)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
 
@@ -166,6 +163,7 @@ input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
 
 # Compile the model
+# default learning rate = 0.001
 mlp_model.compile(
     optimizer=Adam(),   #learning_rate=0.01
     loss= 'mean_squared_error',   #custom_loss,
@@ -175,7 +173,6 @@ mlp_model.compile(
 #mlp_model.summary()
 
 history_list = []
-n_epochs = 100
 
 # files for training and validation
 train_trajectory_files = glob.glob('./Brutus data/*.csv')
@@ -219,7 +216,7 @@ print('All X size:', all_X_tot.shape)
 print('All y size:', all_y_tot.shape)
 
 # select a percentage of the data for training
-sample_size = int(0.1 * len(all_X_tot))
+sample_size = int(0.5 * len(all_X_tot))
 all_X, all_y = all_X_tot[:sample_size], all_y_tot[:sample_size]
 
 # Shuffle the dataset
@@ -238,9 +235,10 @@ losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weigh
 
 # Trainining loop
 batch_size = 32
-n_epochs = 4000 #10000
+n_epochs = 1000 #10000
 for epoch in range(n_epochs):
     # Shuffle the training data
+    print(f'Epoch {epoch + 1}/{n_epochs}:')
     X_train, y_train = shuffle(X_train, y_train, random_state=epoch)
     
     # Select a random sample
