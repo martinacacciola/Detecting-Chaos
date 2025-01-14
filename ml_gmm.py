@@ -67,7 +67,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 
         timestep_data = np.array(timestep_data)
 
-        # Reorganize particles
+        """ # Reorganize particles
         # assume first particle to be at the origin, second on x axis and third on x-y plane
         origin_particle = timestep_data[0, :2]  # select x-y values
         # euclidean distances from origin particles to all the others
@@ -89,7 +89,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
         ])
 
         # Rotate all particles
-        timestep_data[:, :2] = np.dot(timestep_data[:, :2], rotation_matrix)
+        timestep_data[:, :2] = np.dot(timestep_data[:, :2], rotation_matrix) """
 
         X.append(timestep_data.flatten())
 
@@ -106,6 +106,48 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 # linear stack of layers
 
 def create_mlp_model(input_shape):
+    inputs = Input(shape=input_shape)
+
+    # First hidden layer
+    x = Dense(256, activation='relu')(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Second hidden layer
+    x = Dense(256, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    
+    # Third hidden layer
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Fourth hidden layer
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Fifth hidden layer
+    x = Dense(64, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Output layers for each parameter with different activation functions
+    mean_output = Dense(2, activation='linear', name='mean_output')(x)
+    std_output = Dense(2, activation='softplus', name='std_output')(x)
+    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
+    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
+
+    # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
+    output = Concatenate()([mean_output, std_output, weight_output, height_output])
+    
+    # Create the final model
+    final_model = Model(inputs=inputs, outputs=output)
+    
+    return final_model
+
+def leaky_mlp_model(input_shape):
     inputs = Input(shape=input_shape)
 
     # First hidden block
@@ -212,15 +254,15 @@ np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
 all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
 all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
 
+# Shuffle the dataset
+all_X_tot, all_y_tot = shuffle(all_X_tot, all_y_tot, random_state=42)
+
 print('All X size:', all_X_tot.shape)
 print('All y size:', all_y_tot.shape)
 
 # select a percentage of the data for training
-sample_size = int(0.5 * len(all_X_tot))
+sample_size = int(0.1 * len(all_X_tot))
 all_X, all_y = all_X_tot[:sample_size], all_y_tot[:sample_size]
-
-# Shuffle the dataset
-all_X, all_y = shuffle(all_X, all_y, random_state=42)
 
 # Split the dataset into training and validation sets
 X_train, X_val, y_train, y_val = train_test_split(all_X, all_y, test_size=0.2, random_state=42)
@@ -229,13 +271,26 @@ print('y_train size:', y_train.shape)
 print('X_val size:', X_val.shape)
 print('y_val size:', y_val.shape)
 
+## added
+# Ensure no overlap by checking indices
+# set = unordered collection of unique elements
+train_indices = set(map(tuple, X_train))  # Convert to set of tuples for comparison
+val_indices = set(map(tuple, X_val))
+
+overlap = train_indices.intersection(val_indices)
+if overlap:
+    print(f"Overlap detected! Overlapping entries: {overlap}")
+else:
+    print("No overlap between training and validation sets.")
+##
+
 # Initialize dictionaries to store losses
 losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']},
                     'val_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']}}
 
 # Trainining loop
 batch_size = 32
-n_epochs = 1000 #10000
+n_epochs = 10000 #4000
 for epoch in range(n_epochs):
     # Shuffle the training data
     print(f'Epoch {epoch + 1}/{n_epochs}:')
