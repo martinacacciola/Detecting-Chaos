@@ -229,9 +229,15 @@ all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
 all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
 
 # Normalize inputs and outputs
-scaler = StandardScaler()
-all_X_tot = scaler.fit_transform(all_X_tot)
-all_y_tot = scaler.fit_transform(all_y_tot)
+scaler_X = StandardScaler()
+all_X_tot = scaler_X.fit_transform(all_X_tot)
+
+# Split the targets into separate groups (mean, std, weight, height) and normalize each separately
+all_y_split = np.split(all_y_tot, 4, axis=-1)
+scalers_y = [StandardScaler().fit(y) for y in all_y_split]
+all_y_norm_split = [scaler.transform(y) for scaler, y in zip(scalers_y, all_y_split)]
+all_y_tot = np.column_stack(all_y_norm_split)
+
 
 # save normalized data
 #np.savetxt('./data/all_X_norm.csv', all_X_tot, delimiter=',')
@@ -369,9 +375,14 @@ for _ in range(num_random_samples):
 real_values_array = np.column_stack([np.concatenate(real_values[param]) for param in ['mean', 'std', 'weight', 'height']])
 predicted_values_array = np.column_stack([np.concatenate(predicted_values[param]) for param in ['mean', 'std', 'weight', 'height']])
 
-# Denormalize the values using scaler.inverse_transform
-real_values_denorm = scaler.inverse_transform(real_values_array)
-predicted_values_denorm = scaler.inverse_transform(predicted_values_array)
+# Ensure correct splitting of real and predicted values into groups of 2 (for each Gaussian)
+real_values_split = [real_values_array[:, i:i + 2] for i in range(0, real_values_array.shape[1], 2)]
+predicted_values_split = [predicted_values_array[:, i:i + 2] for i in range(0, predicted_values_array.shape[1], 2)]
+
+# Denormalize using the scalers, ensuring correct shapes for inverse_transform
+real_values_denorm = np.column_stack([scaler.inverse_transform(real) for scaler, real in zip(scalers_y, real_values_split)])
+predicted_values_denorm = np.column_stack([scaler.inverse_transform(pred) for scaler, pred in zip(scalers_y, predicted_values_split)])
+
 
 # Predicted vs Actual scatter plot
 for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
