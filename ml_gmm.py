@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import glob
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import tensorflow as tf
@@ -133,59 +134,31 @@ def create_mlp_model(input_shape):
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
     
-    # Output layers for each parameter with different activation functions
-    mean_output = Dense(2, activation='linear', name='mean_output')(x)
-    std_output = Dense(2, activation='softplus', name='std_output')(x)
-    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
-    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
-
-    # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
-    output = Concatenate()([mean_output, std_output, weight_output, height_output])
-    
-    # Create the final model
-    final_model = Model(inputs=inputs, outputs=output)
-    
-    return final_model
-
-def leaky_mlp_model(input_shape):
-    inputs = Input(shape=input_shape)
-
-    # First hidden block
-    x = Dense(512)(inputs)  # Increase neurons
-    x = LeakyReLU(negative_slope=0.1)(x)  # Use LeakyReLU instead of ReLU for better gradient flow
-    x = BatchNormalization()(x)
-    x = Dropout(0.4)(x)  # Increase dropout rate
-
-    # Second hidden block
-    x = Dense(512)(x)
-    x = LeakyReLU(negative_slope=0.1)(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.4)(x)
-
-    # Third hidden block
-    x = Dense(256)(x)
-    x = LeakyReLU(negative_slope=0.1)(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-
-    # Fourth hidden block
-    x = Dense(256)(x)
-    x = LeakyReLU(negative_slope=0.1)(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-
-    # Fifth hidden block
-    x = Dense(128)(x)
-    x = LeakyReLU(negative_slope=0.1)(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-
-    # Sixth hidden block
-    x = Dense(128)(x)
-    x = LeakyReLU(negative_slope=0.1)(x)
+    # Sixth hidden layer
+    x = Dense(64, activation='relu')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
-
+    
+    # Seventh hidden layer
+    x = Dense(32, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Eighth hidden layer
+    x = Dense(32, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Ninth hidden layer
+    x = Dense(16, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
+    # Tenth hidden layer
+    x = Dense(16, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+    
     # Output layers for each parameter with different activation functions
     mean_output = Dense(2, activation='linear', name='mean_output')(x)
     std_output = Dense(2, activation='softplus', name='std_output')(x)
@@ -199,7 +172,6 @@ def leaky_mlp_model(input_shape):
     final_model = Model(inputs=inputs, outputs=output)
     
     return final_model
-
 
 input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
@@ -251,25 +223,51 @@ all_y = np.concatenate(all_y, axis=0)
 np.savetxt('./data/all_X.csv', all_X, delimiter=',')
 np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
 
+"""
+# to normalize inputs and outputs (do it just once)
 all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
 all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
+
+# Normalize inputs and outputs
+scaler = StandardScaler()
+all_X_tot = scaler.fit_transform(all_X_tot)
+all_y_tot = scaler.fit_transform(all_y_tot)
+
+# save normalized data
+#np.savetxt('./data/all_X_norm.csv', all_X_tot, delimiter=',')
+#np.savetxt('./data/all_y_norm.csv', all_y_tot, delimiter=',') 
+
+"""
+#using already normalized inputs and outputs
+all_X_tot = np.genfromtxt('./data/all_X_norm.csv', delimiter=',')
+all_y_tot = np.genfromtxt('./data/all_y_norm.csv', delimiter=',')
 
 # Shuffle the dataset
 all_X_tot, all_y_tot = shuffle(all_X_tot, all_y_tot, random_state=42)
 
-print('All X size:', all_X_tot.shape)
-print('All y size:', all_y_tot.shape)
+#print('All X size:', all_X_tot.shape)
+#print('All y size:', all_y_tot.shape)
+
+# divide the dataset into two sets: training+validation and test
+train_val_percentage = 0.8
+test_percentage = 0.2
+train_val_size = int(train_val_percentage * len(all_X_tot))
+test_size = len(all_X_tot) - train_val_size
+train_val_X = all_X_tot[:train_val_size]
+train_val_y = all_y_tot[:train_val_size]
+test_X = all_X_tot[train_val_size:]
+test_y = all_y_tot[train_val_size:]
 
 # select a percentage of the data for training
-sample_size = int(0.1 * len(all_X_tot))
-all_X, all_y = all_X_tot[:sample_size], all_y_tot[:sample_size]
+sample_size = int(0.1 * len(train_val_X))
+all_X, all_y = train_val_X[:sample_size], train_val_y[:sample_size]
 
 # Split the dataset into training and validation sets
 X_train, X_val, y_train, y_val = train_test_split(all_X, all_y, test_size=0.2, random_state=42)
-print('X_train size:', X_train.shape)
-print('y_train size:', y_train.shape)
-print('X_val size:', X_val.shape)
-print('y_val size:', y_val.shape)
+#print('X_train size:', X_train.shape)
+#print('y_train size:', y_train.shape)
+#print('X_val size:', X_val.shape)
+#print('y_val size:', y_val.shape)
 
 ## added
 # Ensure no overlap by checking indices
@@ -332,7 +330,7 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.title(f'Loss Evolution for {param.capitalize()}')
     plt.xlabel('Epoch')
     plt.ylabel('Loss (MSE)')
-    #plt.yscale('log')
+    plt.yscale('log')
     plt.legend()
     plt.tight_layout()
 
@@ -340,43 +338,56 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
 plt.savefig('./figures/loss_evolution_per_param.png')
 plt.show()
 
-# Evaluate on the test dataset
-test_traj_df = pd.read_csv(test_traj_path)
-particles = test_traj_df[test_traj_df['Phase'].astype(int) == 1]['Particle Number'].unique()
-X_test, y_test = process_dataset(test_traj_path, test_gaussian_path, pos_vel_cols, particles)
 
-# Predict test results
-y_pred = mlp_model.predict(X_test)
-y_test_split = np.split(y_test, 4, axis=-1)
-y_pred_split = np.split(y_pred, 4, axis=-1)
+### TEST
+# Number of random samples to test
+num_random_samples = 1000
 
-# Compute test losses for each parameter
-test_losses = {param: mean_squared_error(y_test_split[idx], y_pred_split[idx]) 
-               for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
+# Lists to store real and predicted values for scatter plot
+real_values = {param: [] for param in ['mean', 'std', 'weight', 'height']}
+predicted_values = {param: [] for param in ['mean', 'std', 'weight', 'height']}
 
-print("Test Losses (MSE) per Parameter:")
-for param, loss in test_losses.items():
-    print(f"{param.capitalize()}: {loss:.4f}")
+# Repeat the process for multiple random samples
+for _ in range(num_random_samples):
+    # Generate a random index
+    random_index = np.random.randint(0, test_X.shape[0])
+    X_random = test_X[random_index].reshape(1, -1)
+    y_random = test_y[random_index].reshape(1, -1)
 
-# Test performance with one random set of coordinates from one timestep
-# generate index btw 0 and number of samples
-random_index = np.random.randint(0, X_test.shape[0])
-X_random = X_test[random_index].reshape(1, -1)
-y_random = y_test[random_index].reshape(1, -1)
-print('Random X size:', X_random.shape) # 1, 18
-print('Random y size:', y_random.shape) # 1, 8
+    # Predict the random sample
+    y_random_pred = mlp_model.predict(X_random)
+    
+    # Split the real and predicted values
+    y_random_split = np.split(y_random, 4, axis=-1)
+    y_random_pred_split = np.split(y_random_pred, 4, axis=-1)
 
-y_random_pred = mlp_model.predict(X_random)
-y_random_split = np.split(y_random, 4, axis=-1)
-y_random_pred_split = np.split(y_random_pred, 4, axis=-1)
+    # Store real and predicted values for scatter plot
+    for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+        real_values[param].append(y_random_split[idx].flatten())
+        predicted_values[param].append(y_random_pred_split[idx].flatten())
 
-random_losses = {param: mean_squared_error(y_random_split[idx], y_random_pred_split[idx]) 
-                 for idx, param in enumerate(['mean', 'std', 'weight', 'height'])}
 
-# Print random sample losses
-print("\nRandom Sample Losses (MSE) per Parameter:")
-for param, loss in random_losses.items():
-    print(f"{param.capitalize()}: {loss:.4f}")
+# Convert the lists of real and predicted values to numpy arrays
+for param in real_values:
+    real_values[param] = np.concatenate(real_values[param])
+    predicted_values[param] = np.concatenate(predicted_values[param])
+
+# Create scatter plots for each parameter
+parameters = ['mean', 'std', 'weight', 'height']
+for param in parameters:
+    plt.figure(figsize=(6, 5))
+    plt.scatter(real_values[param], predicted_values[param], alpha=0.6, edgecolor='k', label='Predicted')
+    plt.scatter(real_values[param], real_values[param], alpha=0.6, edgecolor='k', label='True', color='red')
+    plt.plot([min(real_values[param]), max(real_values[param])],
+             [min(real_values[param]), max(real_values[param])], 'r--', linewidth=2)
+    plt.title(f'True vs Predicted: {param}', fontsize=14)
+    plt.xlabel(f'True {param}', fontsize=12)
+    plt.ylabel(f'Predicted {param}', fontsize=12)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f'true_vs_predicted_{param}.png')
+    plt.close()
 
 
 """ # da sistemare
@@ -479,4 +490,59 @@ def create_mlp_model(input_shape):
     # Create the final model
     final_model = Model(inputs=inputs, outputs=output)
     
-    return final_model """
+    return final_model 
+    
+    
+    # leaky model
+    # def leaky_mlp_model(input_shape):
+    inputs = Input(shape=input_shape)
+
+    # First hidden block
+    x = Dense(512)(inputs)  # Increase neurons
+    x = LeakyReLU(negative_slope=0.1)(x)  # Use LeakyReLU instead of ReLU for better gradient flow
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)  # Increase dropout rate
+
+    # Second hidden block
+    x = Dense(512)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)
+
+    # Third hidden block
+    x = Dense(256)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # Fourth hidden block
+    x = Dense(256)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # Fifth hidden block
+    x = Dense(128)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # Sixth hidden block
+    x = Dense(128)(x)
+    x = LeakyReLU(negative_slope=0.1)(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.2)(x)
+
+    # Output layers for each parameter with different activation functions
+    mean_output = Dense(2, activation='linear', name='mean_output')(x)
+    std_output = Dense(2, activation='softplus', name='std_output')(x)
+    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
+    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
+
+    # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
+    output = Concatenate()([mean_output, std_output, weight_output, height_output])
+    
+    # Create the final model
+    final_model = Model(inputs=inputs, outputs=output)
+    
+    return final_model"""
