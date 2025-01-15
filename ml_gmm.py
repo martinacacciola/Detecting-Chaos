@@ -202,7 +202,7 @@ pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Veloc
 
 # below to concatenate all the files in one
 # do it just once and save the concatenated files
-""" 
+
 
 # Initialize lists to hold all trajectories and parameters
 all_X = []
@@ -221,9 +221,9 @@ for traj_path, gaussian_path in zip(train_trajectory_files, train_gaussian_files
 all_X = np.concatenate(all_X, axis=0)
 all_y = np.concatenate(all_y, axis=0)
 np.savetxt('./data/all_X.csv', all_X, delimiter=',')
-np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
+np.savetxt('./data/all_y.csv', all_y, delimiter=',') 
 
-"""
+
 # to normalize inputs and outputs (do it just once)
 all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
 all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
@@ -237,10 +237,9 @@ all_y_tot = scaler.fit_transform(all_y_tot)
 #np.savetxt('./data/all_X_norm.csv', all_X_tot, delimiter=',')
 #np.savetxt('./data/all_y_norm.csv', all_y_tot, delimiter=',') 
 
-"""
-#using already normalized inputs and outputs
-all_X_tot = np.genfromtxt('./data/all_X_norm.csv', delimiter=',')
-all_y_tot = np.genfromtxt('./data/all_y_norm.csv', delimiter=',')
+#using already normalized inputs and outputs # uncomment and comment part above later
+#all_X_tot = np.genfromtxt('./data/all_X_norm.csv', delimiter=',')
+#all_y_tot = np.genfromtxt('./data/all_y_norm.csv', delimiter=',')
 
 # Shuffle the dataset
 all_X_tot, all_y_tot = shuffle(all_X_tot, all_y_tot, random_state=42)
@@ -288,7 +287,7 @@ losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weigh
 
 # Trainining loop
 batch_size = 32
-n_epochs = 10000 #4000
+n_epochs = 10 #10000 #4000
 for epoch in range(n_epochs):
     # Shuffle the training data
     print(f'Epoch {epoch + 1}/{n_epochs}:')
@@ -366,28 +365,63 @@ for _ in range(num_random_samples):
         real_values[param].append(y_random_split[idx].flatten())
         predicted_values[param].append(y_random_pred_split[idx].flatten())
 
-
 # Convert the lists of real and predicted values to numpy arrays
-for param in real_values:
-    real_values[param] = np.concatenate(real_values[param])
-    predicted_values[param] = np.concatenate(predicted_values[param])
+real_values_array = np.column_stack([np.concatenate(real_values[param]) for param in ['mean', 'std', 'weight', 'height']])
+predicted_values_array = np.column_stack([np.concatenate(predicted_values[param]) for param in ['mean', 'std', 'weight', 'height']])
 
-# Create scatter plots for each parameter
+# Denormalize the values using scaler.inverse_transform
+real_values_denorm = scaler.inverse_transform(real_values_array)
+predicted_values_denorm = scaler.inverse_transform(predicted_values_array)
+
+# Predicted vs Actual scatter plot
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    plt.figure(figsize=(10, 5))
+    sns.regplot(x=real_values_denorm[:, idx], y=predicted_values_denorm[:, idx], scatter_kws={'color':'blue', 'alpha':0.5}, line_kws={'color':'red'}, label='Actual vs Predicted')
+    plt.xlabel(f'Actual {param}')
+    plt.ylabel(f'Predicted {param}')
+    plt.title(f'Predicted vs Actual Scatter Plot for {param}')
+    plt.legend()
+    plt.show()
+
+# Residual plot
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    residuals = real_values_denorm[:, idx] - predicted_values_denorm[:, idx]
+
+    plt.figure(figsize=(10, 5))
+    sns.regplot(x=predicted_values_denorm[:, idx], y=residuals, scatter_kws={'color':'blue', 'alpha':0.5}, line_kws={'color':'red'}, label='Residuals')
+    plt.xlabel(f'Predicted {param}')
+    plt.ylabel('Residuals')
+    plt.title(f'Residual Plot for {param}')
+    plt.legend()
+    plt.show()
+
+
+""" 
+# Predict on the test set
+y_test_pred = mlp_model.predict(test_X)
+
+# Denormalize true and predicted values
+y_test_denorm = scaler.inverse_transform(test_y)
+y_test_pred_denorm = scaler.inverse_transform(y_test_pred)
+
+# Generate scatter plots for each parameter
 parameters = ['mean', 'std', 'weight', 'height']
-for param in parameters:
+for idx, param in enumerate(parameters):
     plt.figure(figsize=(6, 5))
-    plt.scatter(real_values[param], predicted_values[param], alpha=0.6, edgecolor='k', label='Predicted')
-    plt.scatter(real_values[param], real_values[param], alpha=0.6, edgecolor='k', label='True', color='red')
-    plt.plot([min(real_values[param]), max(real_values[param])],
-             [min(real_values[param]), max(real_values[param])], 'r--', linewidth=2)
+    plt.scatter(y_test_denorm[:, idx], y_test_pred_denorm[:, idx], alpha=0.6, edgecolor='k', label='Predicted')
+    plt.plot([min(y_test_denorm[:, idx]), max(y_test_denorm[:, idx])],
+             [min(y_test_denorm[:, idx]), max(y_test_denorm[:, idx])], 'r--', linewidth=2, label='Ideal')
     plt.title(f'True vs Predicted: {param}', fontsize=14)
     plt.xlabel(f'True {param}', fontsize=12)
     plt.ylabel(f'Predicted {param}', fontsize=12)
-    plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f'true_vs_predicted_{param}.png')
+    plt.savefig(f'test_true_vs_predicted_{param}.png')
     plt.close()
+
+
+
+"""
 
 
 """ # da sistemare
