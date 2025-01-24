@@ -2,15 +2,16 @@ import numpy as np
 import pandas as pd
 import glob
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Dense, Input, Dropout, BatchNormalization, Concatenate, LeakyReLU
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import Adam, SGD
 import seaborn as sns
+import shap
 
 # TODO: 
 # problema: custom_loss (o anche l'altra) non è adatta agli split e non la si sta utilizzando per i grafici
@@ -115,47 +116,17 @@ def create_mlp_model(input_shape):
     x = Dropout(0.3)(x)
     
     # Second hidden layer
-    x = Dense(256, activation='relu')(x)
+    x = Dense(128, activation='relu')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
     
     # Third hidden layer
-    x = Dense(128, activation='relu')(x)
+    x = Dense(64, activation='relu')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
     
     # Fourth hidden layer
-    x = Dense(128, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Fifth hidden layer
-    x = Dense(64, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Sixth hidden layer
-    x = Dense(64, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Seventh hidden layer
     x = Dense(32, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Eighth hidden layer
-    x = Dense(32, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Ninth hidden layer
-    x = Dense(16, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.2)(x)
-    
-    # Tenth hidden layer
-    x = Dense(16, activation='relu')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
     
@@ -176,10 +147,11 @@ def create_mlp_model(input_shape):
 input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
 
+optimizer = Adam(learning_rate=0.01, clipvalue=0.5)  
 # Compile the model
 # default learning rate = 0.001
 mlp_model.compile(
-    optimizer=Adam(),   #learning_rate=0.01
+    optimizer= optimizer,     # SGD(learning_rate=0.01),   #learning_rate=0.01
     loss= 'mean_squared_error',   #custom_loss,
     metrics=['mae']
 )
@@ -205,7 +177,7 @@ pos_vel_cols = ['X Position', 'Y Position', 'Z Position', 'X Velocity', 'Y Veloc
 
 
 # Initialize lists to hold all trajectories and parameters
-all_X = []
+""" all_X = []
 all_y = []
 
 # Load all trajectories and parameters
@@ -221,7 +193,7 @@ for traj_path, gaussian_path in zip(train_trajectory_files, train_gaussian_files
 all_X = np.concatenate(all_X, axis=0)
 all_y = np.concatenate(all_y, axis=0)
 np.savetxt('./data/all_X.csv', all_X, delimiter=',')
-np.savetxt('./data/all_y.csv', all_y, delimiter=',') 
+np.savetxt('./data/all_y.csv', all_y, delimiter=',')  """
 
 
 # to normalize inputs and outputs (do it just once)
@@ -229,12 +201,12 @@ all_X_tot = np.genfromtxt('./data/all_X.csv', delimiter=',')
 all_y_tot = np.genfromtxt('./data/all_y.csv', delimiter=',')
 
 # Normalize inputs and outputs
-scaler_X = StandardScaler()
+scaler_X = MinMaxScaler() #StandardScaler()
 all_X_tot = scaler_X.fit_transform(all_X_tot)
 
 # Split the targets into separate groups (mean, std, weight, height) and normalize each separately
 all_y_split = np.split(all_y_tot, 4, axis=-1)
-scalers_y = [StandardScaler().fit(y) for y in all_y_split]
+scalers_y = [MinMaxScaler().fit(y) for y in all_y_split]
 all_y_norm_split = [scaler.transform(y) for scaler, y in zip(scalers_y, all_y_split)]
 all_y_tot = np.column_stack(all_y_norm_split)
 
@@ -293,7 +265,7 @@ losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weigh
 
 # Trainining loop
 batch_size = 32
-n_epochs = 10 #10000 #4000
+n_epochs = 10000 #4000
 for epoch in range(n_epochs):
     # Shuffle the training data
     print(f'Epoch {epoch + 1}/{n_epochs}:')
@@ -345,15 +317,21 @@ plt.show()
 
 
 ### TEST
+# select a percentage of the data for testing
+sample_size = int(0.01 * len(train_val_X))
+random_indices = np.random.choice(test_X.shape[0], sample_size, replace=False)
+test_X, test_y = test_X[random_indices], test_y[random_indices]
+#test_X, test_y = test_X[:sample_size], test_y[:sample_size]
+
 # Number of random samples to test
-num_random_samples = 1000
+num_random_samples = 50
 
 # Lists to store real and predicted values for scatter plot
 real_values = {param: [] for param in ['mean', 'std', 'weight', 'height']}
 predicted_values = {param: [] for param in ['mean', 'std', 'weight', 'height']}
 
 # Repeat the process for multiple random samples
-for _ in range(num_random_samples):
+for i in range(num_random_samples):
     # Generate a random index
     random_index = np.random.randint(0, test_X.shape[0])
     X_random = test_X[random_index].reshape(1, -1)
@@ -371,6 +349,11 @@ for _ in range(num_random_samples):
         real_values[param].append(y_random_split[idx].flatten())
         predicted_values[param].append(y_random_pred_split[idx].flatten())
 
+    # Print the real and predicted values for each parameter
+    print(f"Iteration {i+1}:")
+    for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+        print(f"{param.capitalize()} - Real: {y_random_split[idx].flatten()}, Predicted: {y_random_pred_split[idx].flatten()}")
+
 # Convert the lists of real and predicted values to numpy arrays
 real_values_array = np.column_stack([np.concatenate(real_values[param]) for param in ['mean', 'std', 'weight', 'height']])
 predicted_values_array = np.column_stack([np.concatenate(predicted_values[param]) for param in ['mean', 'std', 'weight', 'height']])
@@ -383,8 +366,79 @@ predicted_values_split = [predicted_values_array[:, i:i + 2] for i in range(0, p
 real_values_denorm = np.column_stack([scaler.inverse_transform(real) for scaler, real in zip(scalers_y, real_values_split)])
 predicted_values_denorm = np.column_stack([scaler.inverse_transform(pred) for scaler, pred in zip(scalers_y, predicted_values_split)])
 
+##
+# Scatter plot for actual vs predicted values
+""" plt.figure(figsize=(14, 8))
 
-# Predicted vs Actual scatter plot
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    plt.subplot(2, 2, idx + 1)
+    plt.scatter(real_values_denorm[:, idx], predicted_values_denorm[:, idx], alpha=0.5, label='Predicted vs Actual')
+    plt.scatter(real_values_denorm[:, idx], real_values_denorm[:, idx], alpha=0.5, label='Actual vs Actual')
+    #plt.scatter(predicted_values_denorm[:, idx], predicted_values_denorm[:, idx], alpha=0.5, label='Predicted vs Predicted')
+    plt.title(f'Actual vs Predicted for {param.capitalize()}')
+    plt.xlabel('Actual Values')
+    plt.ylabel('Predicted Values')
+    plt.legend()
+    plt.tight_layout()
+
+# Save the figure
+#plt.savefig('./figures/actual_vs_predicted.png')
+plt.show()
+## """
+#provare ad usare i valori non denormalizzati
+
+
+plt.figure(figsize=(10,10))
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    plt.subplot(2, 2, idx+1)
+    plt.scatter(real_values_denorm[:, idx], predicted_values_denorm[:, idx], c='orange', alpha=0.5, label='Predicted') #crimson
+    plt.scatter(real_values_denorm[:, idx], real_values_denorm[:, idx], c='blue', alpha=0.5, label='True')
+    
+    #p1 = max(predicted_values_denorm[:, idx]), max(real_values_denorm[:, idx])
+    #p2 = min(predicted_values_denorm[:, idx]), min(real_values_denorm[:, idx])
+    #plt.plot([p1, p2], [p1, p2], 'b-', label='Identity line')
+    plt.xlabel(f'True {param}', fontsize=15)
+    plt.ylabel(f'Predicted {param}', fontsize=15)
+    plt.axis('equal')
+    plt.legend()
+    plt.tight_layout()
+plt.savefig('./figures/actual_vs_predicted.png')
+plt.show()
+
+#Residual plot
+plt.figure(figsize=(10,10))
+for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
+    plt.subplot(2, 2, idx+1)
+    residuals = real_values_denorm[:, idx] - predicted_values_denorm[:, idx]
+    plt.scatter(real_values_denorm[:, idx], residuals, c='green', alpha=0.5, label='Residuals')
+    plt.axhline(0, color='red', linestyle='--', linewidth=2)
+    plt.xlabel(f'True {param}', fontsize=15)
+    plt.ylabel(f'Residuals {param}', fontsize=15)
+    plt.legend()
+    plt.tight_layout()
+plt.savefig('./figures/residuals_plot.png')
+plt.show()
+
+# ---- SHAP Integration ---- #
+
+# Convert the Keras model to a SHAP explainer
+explainer = shap.Explainer(mlp_model.predict, X_train)
+
+# Select a subset of data for SHAP computations (to save time)
+shap_sample = test_X[:100]  # Use the first 100 samples for explanation
+
+# Compute SHAP values
+shap_values = explainer.shap_values(shap_sample)
+
+# ---- Visualizations ---- #
+
+# Summary plot (global feature importance)
+shap.summary_plot(shap_values, shap_sample)
+
+# Force plot (detailed explanation for a single prediction)
+shap.force_plot(shap_values[0].base_values, shap_values[0].values, shap_sample.iloc[0])
+
+""" # Predicted vs Actual scatter plot
 for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.figure(figsize=(10, 5))
     sns.regplot(x=real_values_denorm[:, idx], y=predicted_values_denorm[:, idx], scatter_kws={'color':'blue', 'alpha':0.5}, line_kws={'color':'red'}, label='Actual vs Predicted')
@@ -392,6 +446,7 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.ylabel(f'Predicted {param}')
     plt.title(f'Predicted vs Actual Scatter Plot for {param}')
     plt.legend()
+    plt.savefig(f'./figures/predicted_vs_actual_{param}.png')
     plt.show()
 
 # Residual plot
@@ -404,7 +459,8 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
     plt.ylabel('Residuals')
     plt.title(f'Residual Plot for {param}')
     plt.legend()
-    plt.show()
+    plt.savefig(f'./figures/residual_plot_{param}.png')
+    plt.show() """
 
 
 """ 
