@@ -147,7 +147,7 @@ def create_mlp_model(input_shape):
 input_shape = (18,)  # 6 for each of the 3 particles
 mlp_model = create_mlp_model(input_shape)
 
-optimizer = Adam(learning_rate=0.01, clipvalue=0.5)  
+optimizer = Adam(learning_rate=0.001, clipvalue=0.5)  
 # Compile the model
 # default learning rate = 0.001
 mlp_model.compile(
@@ -264,7 +264,7 @@ losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weigh
                     'val_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']}}
 
 # Trainining loop
-batch_size = 32
+batch_size = 64 #32
 n_epochs = 10000 #4000
 for epoch in range(n_epochs):
     # Shuffle the training data
@@ -419,24 +419,42 @@ for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
 plt.savefig('./figures/residuals_plot.png')
 plt.show()
 
-# ---- SHAP Integration ---- #
+# ---- SHAP integration ----
+# Define base feature names for one particle
+pos_vel_cols = ['pos_x', 'pos_y', 'pos_z', 'vel_x', 'vel_y', 'vel_z']
 
-# Convert the Keras model to a SHAP explainer
-explainer = shap.Explainer(mlp_model.predict, X_train)
+# Generate feature names for all particles
+num_particles = 3
+feature_names = [f'{col}_particle_{i+1}' for i in range(num_particles) for col in pos_vel_cols]
 
-# Select a subset of data for SHAP computations (to save time)
-shap_sample = test_X[:100]  # Use the first 100 samples for explanation
+# Define a small subset of test data to calculate SHAP values
+shap_sample_size = 100 
+shap_indices = np.random.choice(test_X.shape[0], shap_sample_size, replace=False)
+shap_test_X = test_X[shap_indices]
 
-# Compute SHAP values
-shap_values = explainer.shap_values(shap_sample)
+# Initialize SHAP explainer
+explainer = shap.Explainer(mlp_model, shap_test_X)
 
-# ---- Visualizations ---- #
+# Compute SHAP values for the test data
+shap_values = explainer.shap_values(shap_test_X)
 
-# Summary plot (global feature importance)
-shap.summary_plot(shap_values, shap_sample)
+# Print shapes for debugging
+#print(f"Shape of shap_values: {shap_values.shape}")
+#print(f"Shape of shap_test_X: {shap_test_X.shape}")
+#print(f"Length of feature_names: {len(feature_names)}")
 
-# Force plot (detailed explanation for a single prediction)
-shap.force_plot(shap_values[0].base_values, shap_values[0].values, shap_sample.iloc[0])
+# Split SHAP values by output features
+output_features = ['mean', 'std', 'weight', 'height']
+
+# Plot SHAP summary for each output feature
+for i, feature_name in enumerate(output_features):
+    print(f"Creating SHAP summary plot for {feature_name.capitalize()}")
+    shap.summary_plot(shap_values[:, :, i], shap_test_X, feature_names=feature_names, show=False, plot_type='violin')
+    plt.title(f"SHAP Summary for {feature_name.capitalize()}", fontsize=16)
+    plt.tight_layout()
+    plt.savefig(f'./figures/shap_summary_{feature_name}.png')
+    plt.show()
+
 
 """ # Predicted vs Actual scatter plot
 for idx, param in enumerate(['mean', 'std', 'weight', 'height']):
