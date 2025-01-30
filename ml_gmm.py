@@ -111,22 +111,22 @@ def create_mlp_model(input_shape):
     inputs = Input(shape=input_shape)
 
     # First hidden layer
-    x = Dense(256, activation='relu')(inputs)
+    x = Dense(256, activation='swish')(inputs)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
     
     # Second hidden layer
-    x = Dense(128, activation='relu')(x)
+    x = Dense(128, activation='swish')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
     
     # Third hidden layer
-    x = Dense(64, activation='relu')(x)
+    x = Dense(64, activation='swish')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
     
     # Fourth hidden layer
-    x = Dense(32, activation='relu')(x)
+    x = Dense(32, activation='swish')(x)
     x = BatchNormalization()(x)
     x = Dropout(0.2)(x)
     
@@ -264,7 +264,7 @@ losses_per_param = {'train_loss': {param: [] for param in ['mean', 'std', 'weigh
                     'val_loss': {param: [] for param in ['mean', 'std', 'weight', 'height']}}
 
 # Trainining loop
-batch_size = 64 #32
+batch_size = 32 #32
 n_epochs = 10000 #4000
 for epoch in range(n_epochs):
     # Shuffle the training data
@@ -318,7 +318,7 @@ plt.show()
 
 ### TEST
 # select a percentage of the data for testing
-sample_size = int(0.01 * len(train_val_X))
+sample_size = int(0.1 * len(train_val_X))
 random_indices = np.random.choice(test_X.shape[0], sample_size, replace=False)
 test_X, test_y = test_X[random_indices], test_y[random_indices]
 #test_X, test_y = test_X[:sample_size], test_y[:sample_size]
