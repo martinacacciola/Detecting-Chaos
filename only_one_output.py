@@ -53,7 +53,7 @@ def process_dataset(traj_path, gaussian_path, pos_vel_cols, particles):
 
         # Append Gaussian parameters as the target for this timestep
         #y.append(np.hstack([gaussian_params['mean'], gaussian_params['std'], gaussian_params['weight'], gaussian_params['height']]))
-        y.append(gaussian_params['height'])
+        y.append(gaussian_params['weight'])
 
     X = np.array(X) # (n_timesteps, 18)
     y = np.array(y) # (n_timesteps, 1) using only one param
@@ -90,12 +90,12 @@ def create_mlp_model(input_shape):
     # Output layers for each parameter with different activation functions
     #mean_output = Dense(2, activation='linear', name='mean_output')(x)
     #std_output = Dense(2, activation='softplus', name='std_output')(x) 
-    #weight_output = Dense(2, activation='softmax', name='weight_output')(x)
-    height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
+    weight_output = Dense(2, activation='softmax', name='weight_output')(x)
+    #height_output = Dense(2, activation='softplus', name='height_output')(x)  # Softplus ensures positive output
 
     # Concatenate all outputs (8 - 4 for each of the 2 Gaussians)
     #output = Concatenate()([mean_output, std_output, weight_output, height_output])
-    output = height_output
+    output = weight_output
     
     # Create the final model
     final_model = Model(inputs=inputs, outputs=output)
@@ -116,8 +116,8 @@ train_trajectory_files = glob.glob('./Brutus data/*.csv')
 train_gaussian_files = glob.glob('./data/*.txt')
 
 # file for testing
-test_traj_path = './Brutus data/test_data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
-test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
+#test_traj_path = './Brutus data/test_data/plummer_triples_L0_00_i2025_e90_Lw392.csv'
+#test_gaussian_path = './data/test_data/gmm_parameters_L0_00_i2025_e90_Lw392.txt'
 
 # Identify position and velocity columns
 pos_vel_cols = ['X Position', 'Y Position', 'Z Position']
@@ -244,7 +244,7 @@ plt.figure(figsize=(10, 6))
 
 plt.plot(losses_per_mean['train_loss'], label='Train Loss')
 plt.plot(losses_per_mean['val_loss'], label='Validation Loss')
-plt.title('Loss Evolution for Height')
+plt.title('Loss Evolution for Std')
 plt.xlabel('Epoch')
 plt.ylabel('Loss (MSE)')
 plt.yscale('log')
@@ -252,7 +252,7 @@ plt.legend()
 plt.tight_layout()
 
 # Save the figure
-plt.savefig('./figures/only_loss_evolution_per_height.png')
+#plt.savefig('./figures/only_loss_evolution_per_std.png')
 plt.show()
 
 ### TEST
@@ -285,7 +285,7 @@ for i in range(num_random_samples):
 
     # Print the real and predicted values
     print(f"Iteration {i+1}:")
-    print(f"Height - Real: {y_random.flatten()}, Predicted: {y_random_pred.flatten()}")
+    print(f"Std - Real: {y_random.flatten()}, Predicted: {y_random_pred.flatten()}")
 
 # Convert the lists of real and predicted values to numpy arrays
 #real_values_array = np.array(real_values).flatten()
@@ -299,49 +299,64 @@ for i in range(num_random_samples):
 real_values_denorm = scaler_y.inverse_transform(real_values).flatten()
 predicted_values_denorm = scaler_y.inverse_transform(predicted_values).flatten()
 
+# Apply exponent to recover original values
+real_values_original = np.exp(real_values_denorm)
+predicted_values_original = np.exp(predicted_values_denorm)
+
 # Scatter plot for actual vs predicted values
 plt.figure(figsize=(10, 10))
 plt.scatter(real_values_denorm, predicted_values_denorm, c='orange', alpha=0.5, label='Predicted')
 plt.scatter(real_values_denorm, real_values_denorm, c='blue', alpha=0.5, label='True')
-plt.xlabel('True Height', fontsize=15)
-plt.ylabel('Predicted Height', fontsize=15)
+plt.xlabel('True Std', fontsize=15)
+plt.ylabel('Predicted Std', fontsize=15)
 plt.axis('equal')
 plt.legend()
 plt.tight_layout()
-plt.savefig('./figures/height_actual_vs_predicted.png')
+#plt.savefig('./figures/std_actual_vs_predicted.png')
 plt.show()
 
 # Residual plot
 plt.figure(figsize=(10, 10))
-residuals = real_values_denorm - predicted_values_denorm
-plt.scatter(real_values_denorm, residuals, c='green', alpha=0.5, label='Residuals')
+residuals = real_values_original - predicted_values_original
+plt.scatter(real_values_original, residuals, c='green', alpha=0.5, label='Residuals')
 plt.axhline(0, color='red', linestyle='--', linewidth=2)
-plt.xlabel('True Height', fontsize=15)
-plt.ylabel('Residuals Height', fontsize=15)
+plt.xlabel('True Std', fontsize=15)
+plt.ylabel('Residuals Std', fontsize=15)
 plt.legend()
 plt.tight_layout()
-plt.savefig('./figures/height_residuals_plot.png')
+#plt.savefig('./figures/std_residuals_plot.png')
 plt.show()
 
-
+# capisci valori negativi
 
 def plot_cdf_and_distributions(true_values, predicted_values):
-    # Calculate absolute errors
+    # Calculate relative errors
+    #errors = np.abs(true_values - predicted_values) / np.abs(true_values)
     errors = np.abs(true_values - predicted_values)
     
     # Plot CDF of errors
     sorted_errors = np.sort(errors)
     cdf = np.arange(len(sorted_errors)) / float(len(sorted_errors))
+
+    # Calculate the percentage of samples within the confidence interval
+    confidence_threshold = 0.1  # 1 order of magnitude
+    within_confidence = np.sum(sorted_errors <= confidence_threshold) / len(sorted_errors) * 100
     
     plt.figure(figsize=(14, 6))
     
     plt.subplot(1, 2, 1)
     plt.plot(sorted_errors, cdf, label='CDF of Prediction Errors')
-    plt.axvline(x=1, color='r', linestyle='--', label='1 Order of Magnitude')
+    plt.axvline(x=confidence_threshold, color='r', linestyle='--', label='Absolute Error = 0.1')
     plt.xlabel('Absolute Error')
     plt.ylabel('CDF')
-    plt.title('CDF of Prediction Errors')
+    plt.title('CDF of Prediction Errors for Weight')
+    plt.xscale('log')
     plt.legend()
+    plt.grid()
+
+    # Annotate the plot with the percentage of samples within the confidence interval
+    plt.text(confidence_threshold, 0.5, f'{within_confidence:.2f}% within Absolute Error of 0.1', 
+             color='red', verticalalignment='center', horizontalalignment='right', rotation=90)
     
     # Plot distributions of true and predicted values
     plt.subplot(1, 2, 2)
@@ -358,18 +373,16 @@ def plot_cdf_and_distributions(true_values, predicted_values):
     p_true = norm.pdf(x, mu_true, std_true)
     p_pred = norm.pdf(x, mu_pred, std_pred)
     
-    plt.plot(x, p_true, 'k', linewidth=2, label='True Values Fit')
-    plt.plot(x, p_pred, 'r', linewidth=2, label='Predicted Values Fit')
+    plt.plot(x, p_true, 'b', linewidth=2, label='True Values Fit')
+    plt.plot(x, p_pred, color='orange', linewidth=2, label='Predicted Values Fit')
     
     plt.xlabel('Value')
     plt.ylabel('Density')
-    plt.title('Distribution of True and Predicted Values')
+    plt.title('Distribution of True and Predicted Values for Weight')
     plt.legend()
     
     plt.tight_layout()
+    plt.savefig('./figures/new_abs_weight_cdf_and_distributions.png')
     plt.show()
 
-# Example usage:
-# true_values = np.array([...])  # Replace with your true values
-# predicted_values = np.array([...])  # Replace with your predicted values
-plot_cdf_and_distributions(real_values_denorm, predicted_values_denorm)
+plot_cdf_and_distributions(real_values_original, predicted_values_original)
